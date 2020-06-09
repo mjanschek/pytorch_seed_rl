@@ -1,2 +1,2 @@
 # PyTorch SEED-RL
-A PyTorch implementation based on SEED RL, originally designed by Google Brain.
+A PyTorch Implementation of SEED-RL, originally created by Google Brain for TensorFlow 2.
