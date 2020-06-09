@@ -1,5 +1,4 @@
-def capital_case(x):
-    return x.capitalize()
+from torch_seed_rl import dummy
 
 def test_capital_case():
-    assert capital_case('semaphore') == 'Semaphore'
+    assert dummy.capital_case('semaphore') == 'Semaphore'
