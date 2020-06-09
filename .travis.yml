@@ -13,7 +13,7 @@ before_install:
   - pip install codecov
 install:
   - pip install ".[test]" 
-script: pytest # run tests
+script: pytest --cov=./ # run tests, report coverage
 after_success:
   - codecov # submit coverage
 
