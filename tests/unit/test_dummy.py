@@ -1,4 +1,4 @@
-from torch_seed_rl import dummy
+from pytorch_seed_rl.dummy import capital_case
 
 def test_capital_case():
-    assert dummy.capital_case('semaphore') == 'Semaphore'
+    assert capital_case('semaphore') == 'Semaphore'

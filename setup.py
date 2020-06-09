@@ -19,12 +19,12 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="pytorch-seed-rl", 
+    name="pytorch_seed_rl", 
     license="MIT",
     version="0.0.1",
     author="Michael Janschek",
     author_email="michael.janschek@hhu.de",
-    description="A PyTorch Implementation of SEED-RL, originally created by Google Brain for TensorFlow 2.",
+    description="PyTorch Implementation of SEED-RL",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/mjanschek/pytorch_seed_rl",
