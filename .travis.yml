@@ -1,5 +1,4 @@
 language: python
-fast_finish: true
 python:
   - 3.6
   - 3.7
@@ -10,7 +9,7 @@ before_install:
   - pip install -U pytest
   - pip install codecov
 install:
-  - pip install -r requirements.txt
+  - pip install ".[test]" 
 script: pytest # run tests
 after_success:
   - codecov # submit coverage
