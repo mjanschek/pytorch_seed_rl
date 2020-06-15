@@ -20,7 +20,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pytorch_seed_rl", 
-    license="MIT",
+    license="Apache 2.0",
     version="0.0.1",
     author="Michael Janschek",
     author_email="michael.janschek@hhu.de",
@@ -35,7 +35,7 @@ setuptools.setup(
         'test': TEST_REQUIRES + INSTALL_REQUIRES,
     },
     classifiers=[
-        "License :: OSI Approved :: MIT License",
+        "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
