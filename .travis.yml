@@ -8,6 +8,7 @@ before_install:
   - pip install -U pip
   - pip install -U pytest
   - pip install codecov
+  - pip pip install --pre torch torchvision -f https://download.pytorch.org/whl/nightly/cu102/torch_nightly.html
 install:
   - pip install ".[test]" 
 script: 
