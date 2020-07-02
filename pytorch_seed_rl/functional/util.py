@@ -27,10 +27,6 @@ def v_trace():
     """Consider IMPALA paper.
     """
 
-def v_gae():
-    """Consider IMPACT paper.
-    """
-
-def max_target_worker_clipping():
-    """Consider IMPACT paper.
+def gae_v():
+    """Consider GAE_V paper.
     """

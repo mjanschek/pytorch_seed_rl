@@ -19,6 +19,7 @@ class Buffer():
     """The buffer class is a generalization that can be configured to:
         #. be sampled from
         #. have a circular memory (consider IMPACT paper)
+        #. be prioritized
         #. have finite memory
     """
 
