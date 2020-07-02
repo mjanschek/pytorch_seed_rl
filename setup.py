@@ -15,6 +15,10 @@ TEST_REQUIRES = [
     'collective.checkdocs', 'pygments',
 ]
 
+DOCS_REQUIRES = [
+    'sphinx>=2.0'
+]
+
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
@@ -33,6 +37,7 @@ setuptools.setup(
     install_requires=INSTALL_REQUIRES,
     extras_require={
         'test': TEST_REQUIRES + INSTALL_REQUIRES,
+        'docs': DOCS_REQUIRES + TEST_REQUIRES + INSTALL_REQUIRES,
     },
     classifiers=[
         "License :: OSI Approved :: Apache Software License",
