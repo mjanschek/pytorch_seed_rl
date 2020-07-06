@@ -17,6 +17,8 @@
 Consists of:
     #. n environments
 """
+import torch.distributed.rpc as rpc
+
 
 class Actor():
     """Agent that generates trajectories from at least one environment.
@@ -25,8 +27,14 @@ class Actor():
     :py:class:`~pytorch_seed_rl.agents.learner`, receives actions.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, rank, learner_rref, env_spawner):
+        self.learner_rref = learner_rref
+        self.id = rpc.get_worker_info().id
+        self.rank = rank
+        self.num_envs = env_spawner.num_envs
+        self.env = env_spawner.spawn()
+        self.current_observation = self.env.reset()
+        print("ID:", str(self.id)  + ": Shape:", str(self.current_observation.shape))
 
     def act(self):
         """Interact with internal environment.

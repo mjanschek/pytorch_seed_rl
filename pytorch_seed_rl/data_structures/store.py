@@ -21,5 +21,5 @@ class Store():
         #. store a predefined data structure (not that flexible :-/)
     """
 
-    def __init__(self):
+    def __init__(self, identifiers, depth):
         pass

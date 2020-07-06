@@ -14,3 +14,36 @@
 
 """Collection of pre-defined data structures.
 """
+
+from typing import Any, List, NamedTuple, TypedDict, Union
+
+from torch import Tensor
+
+
+class Observation(NamedTuple):
+    """:py:class:`NamedTuple` to store a single observation from an environment,
+    AFTER inference has been run on it.
+
+    Immutable type as intended use is storage within a :py:class:`Trajectory`
+    """
+
+    step_number: int
+    state: Tensor
+    action: Union(float, int)
+    reward: float
+    inference_info: Any
+    metrics: Any
+
+
+class Trajectory(TypedDict):
+    """:py:class:`TypedDict` to store a number of observations of a single trajectory.
+
+    Mutable type as intended use is storage within a :py:class:`TrajectoryStore` while
+    :py:class:`Observation`s are appended.
+    """
+
+    agent_id: int
+    agent_env_id: int = 0
+    complete: bool
+    global_trajectory_number: int
+    observations: List[Observation]

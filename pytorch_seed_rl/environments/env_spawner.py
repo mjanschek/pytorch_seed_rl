@@ -15,9 +15,23 @@
 """Class that is given to actor threads to spawn local environments.
 """
 
+from . import atari_wrappers
+
+
 class EnvSpawner():
     """Class that is given to actor threads to spawn local environments.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, env_id, num_envs=1):
+        self.env_id = env_id
+        self.num_envs = num_envs
+
+    def spawn(self):
+        return atari_wrappers.wrap_pytorch(
+            atari_wrappers.wrap_deepmind(
+                atari_wrappers.make_atari(self.env_id),
+                clip_rewards=False,
+                frame_stack=True,
+                scale=False,
+            )
+        )

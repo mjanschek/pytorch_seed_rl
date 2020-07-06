@@ -20,26 +20,89 @@ Consists of:
     #. l data prefetching threads
     #. 1 reporting/logging object
 """
+import numpy as np
+import torch
+import torch.distributed.rpc as rpc
+import torch.nn.functional as functional
+
+from .actor import Actor
+
 
 class Learner():
     """Agent that runs inference and learning in parallel via multiple threads.
 
-    #. Runs inference for observations received from :py:class:`~pytorch_seed_rl.agents.actors`.
+    #. Runs inference for observations received from :py:class:`~pytorch_seed_rl.agents.Actor`s.
     #. Puts incomplete trajectories to :py:class:`~pytorch_seed_rl.data_structures.trajectory_store`
     #. Trains global model from trajectories received from a data prefetching thread.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self,
+                 rank,
+                 num_learners,
+                 num_actors,
+                 env_spawner,
+                 model,
+                 optimizer,
+                 loss,
+                 threads_infer=1,
+                 threads_prefetch=1,
+                 threads_train=1,
+                 envs_per_actor=1,
+                 inference_buffer=1,
+                 batchsize=32,
+                 rollout_length=32,
+                 total_epochs=10,
+                 total_steps=0,
+                 save_path=""):
+        # spawn A actors with E environments each
+
+        # create stores:
+        # RecurrentStateStore: A X E slots for recurrent states (1 per actor)
+        # TrajectoryStore: A x E x L slots: A x E Trajectories with max_length L
+
+        # spawn TrajectoryQueue (FIFO)
+
+        # spawn DeviceBuffer (calls TrajectoryQueue till BATCHSIZE trajectories are buffered)
+        self.id = rpc.get_worker_info().id
+        self.device = torch.device("cuda")
+        #self.model = model.to(self.device)
+
+        self.epoch = 0
+        print("Agent", str(rank), "spawned.")
+
+        self.actor_rrefs = []
+        self_rref = rpc.RRef(self)
+        for i in range(num_learners, num_actors+num_learners):
+            print("Spawning actor{}".format(i))
+            actor_info = rpc.get_worker_info("actor{}".format(i))
+            actor_rref = rpc.remote(
+                actor_info, Actor, args=(i, self_rref, env_spawner))
+
+            #actor_rref.remote().loop()
+            self.actor_rrefs.append(actor_rref)
 
     def infer(self):
         """Runs inference as rpc.
+
+        Use https://github.com/pytorch/examples/blob/master/distributed/rpc/batch/reinforce.py for batched rpc reference!
         """
 
     def train(self):
         """Trains on sampled, prefetched trajecotries.
         """
 
-    def prefetch_data(self):
+        # get batches from device
+
+    def report(self):
+        """Reports data to a logging system
+        """
+
+    def checkpoint(self):
+        """Checkpoint the model
+        """
+
+    def prefetch(self):
         """prefetches data from inference thread
         """
+
+        # call TrajectoryQueue, buffer to Device until BATCHSIZE trajectories are gathered
