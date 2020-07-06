@@ -25,12 +25,12 @@ from pytorch_seed_rl.environments import EnvSpawner
 #from pytorch_seed_rl.model import Model
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
+NUM_ENVS = 1
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
 TOTAL_EPISODE_STEP = 100
 
-NUM_ENVS = 1
 NUM_LEARNERS = 1
 NUM_ACTORS = 3
 CSV_FILE = './csv/'

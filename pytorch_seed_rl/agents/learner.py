@@ -78,14 +78,18 @@ class Learner():
             actor_rref = rpc.remote(
                 actor_info, Actor, args=(i, self_rref, env_spawner))
 
-            #actor_rref.remote().loop()
             self.actor_rrefs.append(actor_rref)
 
-    def infer(self):
+        self.env_info = env_spawner.env_info
+
+    def infer(self, actor_rref, observation):
         """Runs inference as rpc.
 
         Use https://github.com/pytorch/examples/blob/master/distributed/rpc/batch/reinforce.py for batched rpc reference!
         """
+        
+        action = self.env_info['action_space'].sample()
+        return action
 
     def train(self):
         """Trains on sampled, prefetched trajecotries.

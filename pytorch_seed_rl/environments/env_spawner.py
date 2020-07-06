@@ -25,6 +25,26 @@ class EnvSpawner():
     def __init__(self, env_id, num_envs=1):
         self.env_id = env_id
         self.num_envs = num_envs
+        self.env_info = self._generate_env_info()
+
+    def _generate_env_info(self):
+        """Spawn environment once to save properties for later reference by learner and model
+        """
+        dummy_env = self.spawn()
+
+        env_info = {
+            "env_id": self.env_id,
+            "num_envs": self.num_envs,
+            "action_space": dummy_env.action_space,
+            "observation_space": dummy_env.observation_space,
+            "reward_range": dummy_env.reward_range,
+            "max_episode_steps": dummy_env.spec.max_episode_steps
+        }
+
+        dummy_env.close()
+        del dummy_env
+
+        return env_info
 
     def spawn(self):
         return atari_wrappers.wrap_pytorch(

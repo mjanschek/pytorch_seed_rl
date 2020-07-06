@@ -34,7 +34,18 @@ class Actor():
         self.num_envs = env_spawner.num_envs
         self.env = env_spawner.spawn()
         self.current_observation = self.env.reset()
-        print("ID:", str(self.id)  + ": Shape:", str(self.current_observation.shape))
+
+        self._loop()
+
+    def _loop(self, total=100):
+        """Loop acting method.
+        """
+        if total:
+            for _ in range(total):
+                self.act()
+        else:
+            while True:
+                self.act()
 
     def act(self):
         """Interact with internal environment.
@@ -42,3 +53,7 @@ class Actor():
             #. Send current state (and metrics) off to batching layer for inference.
             #. Receive action.
         """
+        ret = self.learner_rref.rpc_async().infer(self.id, self.current_observation)
+        action = ret.wait()
+        next_obs, rewards, terminals, infos = self.env.step(action)
+        self.current_observation = next_obs
