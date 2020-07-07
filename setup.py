@@ -33,7 +33,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/mjanschek/pytorch_seed_rl",
     packages=setuptools.find_packages(),
-    python_requires=">=3.6",
+    python_requires=">=3.8",
     install_requires=INSTALL_REQUIRES,
     extras_require={
         'test': TEST_REQUIRES + INSTALL_REQUIRES,
