@@ -20,17 +20,18 @@ from typing import Any, List, NamedTuple, TypedDict, Union
 from torch import Tensor
 
 
-class Observation(NamedTuple):
-    """:py:class:`NamedTuple` to store a single observation from an environment,
+class State(NamedTuple):
+    """:py:class:`NamedTuple` to store a single state from an environment,
     AFTER inference has been run on it.
 
     Immutable type as intended use is storage within a :py:class:`Trajectory`
     """
 
     step_number: int
-    state: Tensor
+    observation: Tensor
     action: Union(float, int)
     reward: float
+    terminal: bool
     inference_info: Any
     metrics: Any
 
