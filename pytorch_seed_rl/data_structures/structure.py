@@ -29,7 +29,7 @@ class State(NamedTuple):
 
     step_number: int
     observation: Tensor
-    action: Union(float, int)
+    action: Union[float, int]
     reward: float
     terminal: bool
     inference_info: Any
@@ -47,4 +47,4 @@ class Trajectory(TypedDict):
     agent_env_id: int = 0
     complete: bool
     global_trajectory_number: int
-    observations: List[Observation]
+    observations: List[State]
