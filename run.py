@@ -46,21 +46,25 @@ def run_threads(rank, world_size, env_spawner, model, optimizer, loss):
                      rank=rank,
                      world_size=world_size)
 
-        rpc.remote(LEARNER_NAME.format(rank),
-                   Learner,
-                   args=(rank,
-                         NUM_LEARNERS,
-                         NUM_ACTORS,
-                         env_spawner,
-                         model,
-                         optimizer,
-                         loss))
+        learner_rref = rpc.remote(LEARNER_NAME.format(rank),
+                                    Learner,
+                                    args=(rank,
+                                          NUM_LEARNERS,
+                                          NUM_ACTORS,
+                                          env_spawner,
+                                          model,
+                                          optimizer,
+                                          loss))
+
+        #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
+        learner_rref.rpc_sync().train()
     else:
         rpc.init_rpc(ACTOR_NAME.format(rank),
                      rank=rank,
                      world_size=world_size)
     # block until all rpcs finish, and shutdown the RPC instance
     rpc.shutdown()
+    print("Process", str(rank), "shut down")
 
 
 def main():

@@ -20,6 +20,9 @@ Consists of:
     #. l data prefetching threads
     #. 1 reporting/logging object
 """
+import gc
+import time
+
 import numpy as np
 import torch
 import torch.distributed.rpc as rpc
@@ -72,30 +75,52 @@ class Learner():
 
         self.actor_rrefs = []
         self_rref = rpc.RRef(self)
+
+        self.shutdown = False
+
+        self.inference_counter = 0
+
         for i in range(num_learners, num_actors+num_learners):
             print("Spawning actor{}".format(i))
             actor_info = rpc.get_worker_info("actor{}".format(i))
             actor_rref = rpc.remote(
                 actor_info, Actor, args=(i, self_rref, env_spawner))
+            actor_rref.remote().loop()
 
             self.actor_rrefs.append(actor_rref)
 
         self.env_info = env_spawner.env_info
 
-    def infer(self, actor_rref, observation):
+    def infer(self, rpc_id, actor_name, observation, reward, terminal):
         """Runs inference as rpc.
 
         Use https://github.com/pytorch/examples/blob/master/distributed/rpc/batch/reinforce.py for batched rpc reference!
         """
-        
         action = self.env_info['action_space'].sample()
-        return action
+        self.inference_counter += 1
+        return action, self.shutdown
 
     def train(self):
         """Trains on sampled, prefetched trajecotries.
         """
+        start = time.time()
+        time.sleep(10)
+        self.shutdown = True
 
+        t = time.time() - start
+        fps = self.inference_counter/t
+
+        print("infered", str(self.inference_counter), "times")
+        print("in", str(t), "seconds")
+        print("==>", str(fps), "fps")
         # get batches from device
+
+        self._cleanup()
+
+    def _cleanup(self):
+        for rref in self.actor_rrefs:
+            del rref
+        gc.collect()
 
     def report(self):
         """Reports data to a logging system
