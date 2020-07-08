@@ -26,12 +26,12 @@ class State(NamedTuple):
 
     Immutable type as intended use is storage within a :py:class:`Trajectory`
     """
-
-    step_number: int
-    observation: Tensor
-    action: Union[float, int]
+    frame: Tensor
     reward: float
-    terminal: bool
+    done: bool
+    episode_return: float
+    episode_step: int
+    last_action: Union[float, int]
     inference_info: Any
     metrics: Any
 
@@ -42,9 +42,6 @@ class Trajectory(TypedDict):
     Mutable type as intended use is storage within a :py:class:`TrajectoryStore` while
     :py:class:`Observation`s are appended.
     """
-
-    agent_id: int
-    agent_env_id: int = 0
-    complete: bool
     global_trajectory_number: int
-    observations: List[State]
+    complete: bool
+    states: List[State]
