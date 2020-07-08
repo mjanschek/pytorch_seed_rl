@@ -15,9 +15,12 @@
 """Collection of pre-defined data structures.
 """
 
-from typing import Any, List, NamedTuple, TypedDict, Union
+from typing import Any, NamedTuple, TypedDict, Union
 
 from torch import Tensor
+
+#from typing import List, TypedDict
+
 
 
 class State(NamedTuple):
@@ -36,12 +39,12 @@ class State(NamedTuple):
     metrics: Any
 
 
-class Trajectory(TypedDict):
-    """:py:class:`TypedDict` to store a number of observations of a single trajectory.
+# class Trajectory(TypedDict):
+#     """:py:class:`TypedDict` to store a number of observations of a single trajectory.
 
-    Mutable type as intended use is storage within a :py:class:`TrajectoryStore` while
-    :py:class:`Observation`s are appended.
-    """
-    global_trajectory_number: int
-    complete: bool
-    states: List[State]
+#     Mutable type as intended use is storage within a :py:class:`TrajectoryStore` while
+#     :py:class:`Observation`s are appended.
+#     """
+#     global_trajectory_number: int
+#     complete: bool
+#     states: List[State]

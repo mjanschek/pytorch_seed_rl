@@ -15,7 +15,7 @@
 """The store class can be configured for various data structures.
 """
 
-from .structure import Trajectory
+#from .structure import Trajectory
 
 
 class TrajectoryStore():
@@ -33,9 +33,15 @@ class TrajectoryStore():
         self.internal_store = {key: self._new_trajectory() for key in key_list}
 
     def _new_trajectory(self):
-        trajectory = Trajectory(global_trajectory_number=self.trajectory_counter,
-                                complete=False,
-                                states=[])
+        trajectory = {
+            "global_trajectory_number": self.trajectory_counter,
+            "complete": False,
+            "states": []
+        }
+
+        # Trajectory(global_trajectory_number=self.trajectory_counter,
+        #                        complete=False,
+        #                        states=[])
 
         self.trajectory_counter += 1
 
