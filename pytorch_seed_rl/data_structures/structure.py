@@ -15,7 +15,7 @@
 """Collection of pre-defined data structures.
 """
 
-from typing import Any, NamedTuple, TypedDict, Union
+from typing import Any, NamedTuple, Union
 
 from torch import Tensor
 
