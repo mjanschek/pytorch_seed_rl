@@ -16,6 +16,7 @@
 """
 
 from . import atari_wrappers
+from .environment import Environment
 
 
 class EnvSpawner():
@@ -35,10 +36,10 @@ class EnvSpawner():
         env_info = {
             "env_id": self.env_id,
             "num_envs": self.num_envs,
-            "action_space": dummy_env.action_space,
-            "observation_space": dummy_env.observation_space,
-            "reward_range": dummy_env.reward_range,
-            "max_episode_steps": dummy_env.spec.max_episode_steps
+            "action_space": dummy_env.gym_env.action_space,
+            "observation_space": dummy_env.gym_env.observation_space,
+            "reward_range": dummy_env.gym_env.reward_range,
+            "max_episode_steps": dummy_env.gym_env.spec.max_episode_steps
         }
 
         dummy_env.close()
@@ -47,11 +48,13 @@ class EnvSpawner():
         return env_info
 
     def spawn(self):
-        return atari_wrappers.wrap_pytorch(
-            atari_wrappers.wrap_deepmind(
-                atari_wrappers.make_atari(self.env_id),
-                clip_rewards=False,
-                frame_stack=True,
-                scale=False,
+        return Environment(
+            atari_wrappers.wrap_pytorch(
+                atari_wrappers.wrap_deepmind(
+                    atari_wrappers.make_atari(self.env_id),
+                    clip_rewards=False,
+                    frame_stack=True,
+                    scale=False,
+                )
             )
         )

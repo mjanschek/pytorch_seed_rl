@@ -36,6 +36,32 @@ from gym import spaces
 cv2.ocl.setUseOpenCL(False)
 
 
+class AutoResetWrapper(gym.Wrapper):
+    """A wrapper that automatically resets the environment in case of termination.
+
+    Arguments
+    ---------
+        env: :py:obj:`gym.Env`
+            An environment that will be wrapped.
+    """
+
+    def __init__(self, env):
+        super().__init__(env)
+        self._terminated = False
+
+    def step(self, action):
+        if self._terminated:
+            self.env.reset()
+        observation, reward, terminal, info = self.env.step(action)
+        self._terminated = terminal
+        return observation, reward, terminal, info
+
+    def reset(self, **kwargs):
+        observation = self.env.reset(**kwargs)
+        self._terminated = False
+        return observation
+
+
 class NoopResetEnv(gym.Wrapper):
     def __init__(self, env, noop_max=30):
         """Sample initial states by taking random number of no-ops on reset.
