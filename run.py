@@ -57,7 +57,9 @@ def run_threads(rank, world_size, env_spawner, model, optimizer, loss):
                                           loss))
 
         #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
-        learner_rref.rpc_sync().train()
+        train_rref = learner_rref.remote().train()
+        train_rref.to_here(timeout=0)
+        learner_rref.rpc_sync().report()
     else:
         rpc.init_rpc(ACTOR_NAME.format(rank),
                      rank=rank,
