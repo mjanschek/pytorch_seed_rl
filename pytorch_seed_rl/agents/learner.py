@@ -30,7 +30,7 @@ import torch.distributed.rpc as rpc
 import torch.multiprocessing as mp
 import torch.nn.functional as functional
 
-from ..data_structures.structure import State, Trajectory
+from ..data_structures.structure import State
 from ..data_structures.trajectory_store import TrajectoryStore
 from .actor import Actor
 
