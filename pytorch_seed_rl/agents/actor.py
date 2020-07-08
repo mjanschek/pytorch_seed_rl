@@ -37,12 +37,7 @@ class Actor():
 
         self.num_envs = env_spawner.num_envs
         self.env = env_spawner.spawn()
-        observation = self.env.reset()
-        self.current_state = {
-            "observation": observation,
-            "reward": 0.,
-            "terminal": False
-        }
+        self.current_state = self.env.initial()
 
         self.shutdown = False
         self.rpc_id = 0
@@ -53,6 +48,8 @@ class Actor():
         """
         while not self.shutdown:
             self.act()
+
+        self.env.close()
         gc.collect()
 
     def _act(self):
@@ -60,9 +57,7 @@ class Actor():
         """
         return self.infer_rref.rpc_async().infer(self._next_rpc_id(),
                                                  self.name,
-                                                 self.current_state['observation'],
-                                                 self.current_state['reward'],
-                                                 self.current_state['terminal'])
+                                                 self.current_state)
 
     def act(self):
         """Interact with internal environment.
@@ -72,13 +67,7 @@ class Actor():
         """
         pending_action = self._act()
         action, self.shutdown = pending_action.wait()
-
-        observation, reward, terminal, _ = self.env.step(action)
-        self.current_state = {
-            "observation": observation,
-            "reward": reward,
-            "terminal": terminal
-        }
+        self.current_state = self.env.step(action)
 
     def _next_rpc_id(self):
         self.rpc_id += 1
