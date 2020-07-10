@@ -65,7 +65,7 @@ class Environment:
         frame = _format_frame(frame)
         # pylint: disable=not-callable
         reward = torch.tensor(reward).view(1, 1)
-        done = torch.tensor(done).view(1, 1)
+        done = torch.tensor(done).view(1, 1).to(dtype=torch.uint8)
 
         return dict(
             frame=frame,
