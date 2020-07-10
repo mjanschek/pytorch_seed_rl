@@ -30,7 +30,6 @@ import torch.distributed.rpc as rpc
 import torch.multiprocessing as mp
 import torch.nn.functional as functional
 
-from ..data_structures.structure import State
 from ..data_structures.trajectory_store import TrajectoryStore
 from .actor import Actor
 
@@ -57,7 +56,7 @@ class Learner():
                  envs_per_actor=1,
                  inference_buffer=1,
                  batchsize=32,
-                 rollout_length=32,
+                 rollout_length=64,
                  total_epochs=10,
                  total_steps=0,
                  save_path=""):
@@ -70,23 +69,61 @@ class Learner():
         # spawn TrajectoryQueue (FIFO)
 
         # spawn DeviceBuffer (calls TrajectoryQueue till BATCHSIZE trajectories are buffered)
+
+        self.starttraining_lock = mp.Lock()
+        self.starttraining_lock.acquire()
+
+        self.batchsize = batchsize
         self.id = rpc.get_worker_info().id
         self.device = torch.device("cuda")
         #self.model = model.to(self.device)
 
-        self.epoch = 0
         print("Agent", str(rank), "spawned.")
 
-        self.actor_rrefs = []
         self_rref = rpc.RRef(self)
 
         self.shutdown = False
+        self.epoch = 0
         self.trainingtime = 0
+        self.inference_counter = 0
+        self.training_counter = 0
+
+        self.env_info = env_spawner.env_info
+        self.dummy_obs = env_spawner.dummy_obs
+        for key, value in self._create_dummy_inference_info().items():
+            self.dummy_obs[key] = value
+
+        self.device_buffer = {}
+        for key, value in self.dummy_obs.items():
+            self.device_buffer[key] = torch.zeros(
+                (rollout_length, batchsize) + value.size(), dtype=value.dtype)
 
         self.log = []
 
-        self.inference_counter = 0
-        self.training_counter = 0
+        self.actor_rrefs = self._spawn_actors(num_learners,
+                                              num_actors,
+                                              env_spawner,
+                                              self_rref)
+        actor_names = [rref.owner_name() for rref in self.actor_rrefs]
+
+        self.trajectory_queue = deque(maxlen=batchsize*num_actors)
+        self.trajectory_store = TrajectoryStore(actor_names,
+                                                self.dummy_obs,
+                                                max_trajectory_length=rollout_length,
+                                                drop_off_queue=self.trajectory_queue)
+
+        # self_rref.remote().loop_prefetch()
+
+        #self.number_prefetch_threads = 1
+        # self.prefetch_treads = [mp.Process(name="prefetch_thread_{}".format(i),
+        #                                   target=self.loop_prefetch) for i in range(self.number_prefetch_threads)]
+
+        # for p in self.prefetch_treads:
+        #    p.start()
+
+    @staticmethod
+    def _spawn_actors(num_learners, num_actors, env_spawner, self_rref):
+        actor_rrefs = []
 
         for i in range(num_learners, num_actors+num_learners):
             print("Spawning actor{}".format(i))
@@ -96,42 +133,30 @@ class Learner():
                                     args=(i, self_rref, env_spawner))
             actor_rref.remote().loop()
 
-            self.actor_rrefs.append(actor_rref)
-
-        actor_names = [rref.owner_name() for rref in self.actor_rrefs]
-
-        self.trajectory_queue = deque(maxlen=100)
-
-        self.trajectory_store = TrajectoryStore(actor_names,
-                                                drop_off_queue=self.trajectory_queue)
-
-        self.env_info = env_spawner.env_info
+            actor_rrefs.append(actor_rref)
+        return actor_rrefs
 
     def infer(self, rpc_id, actor_name, state, metrics=None):
         """Runs inference as rpc.
 
         Use https://github.com/pytorch/examples/blob/master/distributed/rpc/batch/reinforce.py for batched rpc reference!
         """
-        for k, v in state.items():
-            state[k] = v.cuda()
+        for key, value in state.items():
+            state[key] = value.cuda()
 
         # pylint: disable=not-callable
         action = torch.tensor(self.env_info['action_space'].sample(),
-                              dtype=torch.int64)
+                              dtype=torch.int64).view(1, 1)
 
         # placeholder inference time
-        #time.sleep(0.01)
+        # time.sleep(0.01)
 
         self.inference_counter += 1
 
-        inference_info = {
-            'inference_id': self.inference_counter
-        }
+        inference_info = self._create_dummy_inference_info()
+        state = {**state, **inference_info}
 
-        state['inference_info'] = inference_info
-        state['metrics'] = metrics
-
-        self.trajectory_store.add_to_entry(actor_name, State(**state))
+        self.trajectory_store.add_to_entry(actor_name, state, metrics)
 
         return action, self.shutdown
 
@@ -139,20 +164,20 @@ class Learner():
         """Trains on sampled, prefetched trajecotries.
         """
         start = time.time()
-        for _ in range(1000):
+        print("begin training")
+        slept_time = 0.
+        while not self.shutdown and slept_time < 10.:
             if len(self.trajectory_queue) > 0:
                 trajectory = self.trajectory_queue.popleft()
-                print("Received trajectory",
-                      str(trajectory["global_trajectory_number"]),
-                      "lenght of q:", str(len(self.trajectory_queue)))
-
-                # placeholder inference time
-                # time.sleep(1)
-
-                self.training_counter += len(trajectory['states'])
+                print(
+                    "TID:", trajectory['global_trajectory_number'],
+                    "t length:", trajectory['current_length'],
+                    "q length:", len(self.trajectory_queue))
+                self.training_counter += trajectory['current_length']
+                self.shutdown = self.training_counter >= 10000
             else:
                 time.sleep(0.1)
-        self.shutdown = True
+                slept_time += 0.1
 
         self.trainingtime = time.time()-start
 
@@ -194,8 +219,52 @@ class Learner():
         """Checkpoint the model
         """
 
-    def prefetch(self):
-        """prefetches data from inference thread
-        """
+    # def loop_prefetch(self):
+    #     released = False
+    #     while not self.shutdown:
+    #         self.prefetch()
+    #         if not released:
+    #             self.starttraining_lock.release()
+    #             released = True
 
-        # call TrajectoryQueue, buffer to Device until BATCHSIZE trajectories are gathered
+    # def prefetch(self):
+    #     """prefetches data from inference thread
+    #     """
+    #     while len(self.device_buffer) < self.batchsize:
+    #         if len(self.trajectory_queue) > 0:
+    #             trajectory = self.trajectory_queue.popleft()
+    #             # create batch
+    #             self.device_buffer.append(trajectory)
+    #         else:
+    #             time.sleep(0.5)
+
+    #     if len(self.device_buffer) == self.batchsize:
+    #         with self.batch_lock:
+    #             self.buffered_batch = self.create_batch()
+    #     self.device_buffer.clear()
+
+    # def create_batch(self):
+
+    #     batch = {
+    #         "global_trajectory_numbers": buffer_dl["global_trajectory_number"],
+    #         "frames": frames,
+    #         "rewards": rewards,
+    #         "dones": dones,
+    #         "episode_returns": episode_returns,
+    #         "episode_steps": episode_steps,
+    #         "last_actions": last_actions,
+    #         "inference_infos": inference_infos,
+    #         "metrics": metrics,
+    #     }
+
+    #     return batch
+
+    @staticmethod
+    def listdict_to_dictlist(listdict):
+        return {k: [dic[k] for dic in listdict] for k in listdict[0]}
+
+    def _create_dummy_inference_info(self):
+        return {
+            'behaviour_policy': torch.zeros((1, self.env_info['action_space'].n), dtype=torch.float),
+            'behaviour_value': torch.zeros((1, 1), dtype=torch.float)
+        }
