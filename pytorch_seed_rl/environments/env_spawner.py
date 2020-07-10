@@ -18,6 +18,8 @@
 from . import atari_wrappers
 from .environment import Environment
 
+import torch
+
 
 class EnvSpawner():
     """Class that is given to actor threads to spawn local environments.
@@ -26,7 +28,7 @@ class EnvSpawner():
     def __init__(self, env_id, num_envs=1):
         self.env_id = env_id
         self.num_envs = num_envs
-        self.env_info = self._generate_env_info()
+        self.env_info, self.dummy_obs = self._generate_env_info()
 
     def _generate_env_info(self):
         """Spawn environment once to save properties for later reference by learner and model
@@ -42,10 +44,14 @@ class EnvSpawner():
             "max_episode_steps": dummy_env.gym_env.spec.max_episode_steps
         }
 
+        dummy_obs = dummy_env.initial()
+        dummy_obs['frame'] = torch.zeros_like(dummy_obs['frame'])
+        dummy_obs['done'] = torch.zeros_like(dummy_obs['done'])
+
         dummy_env.close()
         del dummy_env
 
-        return env_info
+        return env_info, dummy_obs
 
     def spawn(self):
         return Environment(
