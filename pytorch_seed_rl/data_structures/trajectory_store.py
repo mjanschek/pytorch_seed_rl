@@ -16,6 +16,7 @@
 """
 
 #from .structure import Trajectory
+import torch
 
 
 class TrajectoryStore():
@@ -24,8 +25,9 @@ class TrajectoryStore():
         #. store a predefined data structure (not that flexible :-/)
     """
 
-    def __init__(self, key_list, max_trajectory_length=-1, drop_off_queue=None):
+    def __init__(self, key_list, zero_obs, max_trajectory_length=128, drop_off_queue=None):
 
+        self.zero_obs = zero_obs
         self.max_trajectory_length = max_trajectory_length
         self.drop_off_queue = drop_off_queue
         self.trajectory_counter = 0
@@ -36,7 +38,9 @@ class TrajectoryStore():
         trajectory = {
             "global_trajectory_number": self.trajectory_counter,
             "complete": False,
-            "states": []
+            "current_length": 0,
+            "states": self._new_states(),
+            "metrics": []
         }
 
         # Trajectory(global_trajectory_number=self.trajectory_counter,
@@ -47,19 +51,39 @@ class TrajectoryStore():
 
         return trajectory
 
-    def add_to_entry(self, key, state):
-        trajectory = self.internal_store[key]
+    def _new_states(self):
+        states = {}
+        for key, value in self.zero_obs.items():
+            #states[key] = torch.zeros((self.max_trajectory_length,) + value.size(), dtype=value.dtype)
+            states[key] = value.repeat(
+                (self.max_trajectory_length,) + (1,)*(len(value.size())-1))
+        return states
 
-        trajectory["states"].append(state)
+    def _reset_trajectory(self, actor_name):
+        self.trajectory_counter += 1
+        trajectory = self.internal_store[actor_name]
+        trajectory['global_trajectory_number'] = self.trajectory_counter
+        trajectory['complete'] = False
+        trajectory['current_length'] = 0
+        trajectory['metrics'] = []
 
-        if state.done:
+    def add_to_entry(self, actor_name, state, metrics):
+        trajectory = self.internal_store[actor_name]
+        current_length = trajectory['current_length']
+        states = trajectory['states']
+
+        for key, value in state.items():
+            states[key][current_length].copy_(value[0])
+
+        trajectory['current_length'] += 1
+        if state['done']:
             trajectory["complete"] = True
 
-        if trajectory["complete"] or (len(trajectory["states"]) == self.max_trajectory_length):
+        if trajectory["complete"] or (trajectory['current_length'] == self.max_trajectory_length):
             self._drop(trajectory)
-            trajectory = self._new_trajectory()
+            self._reset_trajectory(actor_name)
 
-        self.internal_store[key] = trajectory
+        trajectory["metrics"].append(metrics)
 
     def _drop(self, trajectory):
-        self.drop_off_queue.append(trajectory)
+        self.drop_off_queue.append(trajectory.copy())
