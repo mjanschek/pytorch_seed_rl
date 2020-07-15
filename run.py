@@ -47,17 +47,17 @@ def run_threads(rank, world_size, env_spawner, model, optimizer, loss):
                      world_size=world_size)
 
         learner_rref = rpc.remote(LEARNER_NAME.format(rank),
-                                    Learner,
-                                    args=(rank,
-                                          NUM_LEARNERS,
-                                          NUM_ACTORS,
-                                          env_spawner,
-                                          model,
-                                          optimizer,
-                                          loss))
+                                  Learner,
+                                  args=(rank,
+                                        NUM_LEARNERS,
+                                        NUM_ACTORS,
+                                        env_spawner,
+                                        model,
+                                        optimizer,
+                                        loss))
 
         #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
-        train_rref = learner_rref.remote().train()
+        train_rref = learner_rref.remote().loop_train()
         train_rref.to_here(timeout=0)
         learner_rref.rpc_sync().report()
     else:
