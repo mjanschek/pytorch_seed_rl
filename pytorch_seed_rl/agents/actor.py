@@ -36,8 +36,8 @@ class Actor():
         self.rank = rank
 
         self.num_envs = env_spawner.num_envs
-        self.env = env_spawner.spawn()
-        self.current_state = self.env.initial()
+        self.envs = env_spawner.spawn()
+        self.current_states = [env.initial() for env in self.envs]
 
         self.shutdown = False
         self.rpc_id = 0
@@ -49,15 +49,20 @@ class Actor():
         while not self.shutdown:
             self.act()
 
-        self.env.close()
+        for env in self.envs:
+            env.close()
         gc.collect()
 
     def _act(self):
         """Wrap for async RPC method infer() ran on remote learner.
         """
-        return self.infer_rref.rpc_async().infer(self._next_rpc_id(),
-                                                 self.name,
-                                                 self.current_state)
+        pending_actions = [self.infer_rref.rpc_async().infer(self._next_rpc_id(),
+                                                             self.name,
+                                                             i,
+                                                             self.current_states[i])
+                           for i in range(self.num_envs)]
+
+        return pending_actions
 
     def act(self):
         """Interact with internal environment.
@@ -65,9 +70,10 @@ class Actor():
             #. Send current state (and metrics) off to batching layer for inference.
             #. Receive action.
         """
-        pending_action = self._act()
-        action, self.shutdown = pending_action.wait()
-        self.current_state = self.env.step(action)
+        pending_actions = self._act()
+        for i in range(self.num_envs):
+            action, self.shutdown = pending_actions[i].wait()
+            self.current_states[i] = self.envs[i].step(action)
 
     def _next_rpc_id(self):
         self.rpc_id += 1

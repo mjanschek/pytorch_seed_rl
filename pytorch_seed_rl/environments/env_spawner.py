@@ -33,7 +33,7 @@ class EnvSpawner():
     def _generate_env_info(self):
         """Spawn environment once to save properties for later reference by learner and model
         """
-        dummy_env = self.spawn()
+        dummy_env = self.spawn()[0]
 
         env_info = {
             "env_id": self.env_id,
@@ -54,7 +54,7 @@ class EnvSpawner():
         return env_info, dummy_obs
 
     def spawn(self):
-        return Environment(
+        return [Environment(
             atari_wrappers.wrap_pytorch(
                 atari_wrappers.wrap_deepmind(
                     atari_wrappers.make_atari(self.env_id),
@@ -63,4 +63,4 @@ class EnvSpawner():
                     scale=False,
                 )
             )
-        )
+        ) for _ in range(self.num_envs)]

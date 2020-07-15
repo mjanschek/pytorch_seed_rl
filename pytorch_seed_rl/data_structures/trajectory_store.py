@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# pylint: disable=not-callable, missing-module-docstring, missing-class-docstring, missing-function-docstring, too-many-arguments, arguments-differ
+
 """The store class can be configured for various data structures.
 """
 
 #from .structure import Trajectory
+import copy
 import torch
 
 
@@ -25,27 +28,26 @@ class TrajectoryStore():
         #. store a predefined data structure (not that flexible :-/)
     """
 
-    def __init__(self, key_list, zero_obs, max_trajectory_length=128, drop_off_queue=None):
+    def __init__(self, actor_names, num_envs, zero_obs, drop_off_queue, device, max_trajectory_length=128):
 
+        self.device = device
         self.zero_obs = zero_obs
         self.max_trajectory_length = max_trajectory_length
         self.drop_off_queue = drop_off_queue
         self.trajectory_counter = 0
 
+        key_list = [x+"_env{}".format(y) for x in actor_names for y in range(num_envs)]
+
         self.internal_store = {key: self._new_trajectory() for key in key_list}
 
     def _new_trajectory(self):
         trajectory = {
-            "global_trajectory_number": self.trajectory_counter,
-            "complete": False,
-            "current_length": 0,
+            "global_trajectory_number": torch.tensor(self.trajectory_counter),
+            "complete": torch.tensor(False),
+            "current_length": torch.tensor(0),
             "states": self._new_states(),
-            "metrics": []
+            #"metrics": []
         }
-
-        # Trajectory(global_trajectory_number=self.trajectory_counter,
-        #                        complete=False,
-        #                        states=[])
 
         self.trajectory_counter += 1
 
@@ -54,7 +56,6 @@ class TrajectoryStore():
     def _new_states(self):
         states = {}
         for key, value in self.zero_obs.items():
-            #states[key] = torch.zeros((self.max_trajectory_length,) + value.size(), dtype=value.dtype)
             states[key] = value.repeat(
                 (self.max_trajectory_length,) + (1,)*(len(value.size())-1))
         return states
@@ -62,14 +63,22 @@ class TrajectoryStore():
     def _reset_trajectory(self, actor_name):
         self.trajectory_counter += 1
         trajectory = self.internal_store[actor_name]
-        trajectory['global_trajectory_number'] = self.trajectory_counter
-        trajectory['complete'] = False
-        trajectory['current_length'] = 0
-        trajectory['metrics'] = []
+        trajectory['global_trajectory_number'].fill_(self.trajectory_counter)
+        trajectory['complete'].fill_(0)
+        trajectory['current_length'].fill_(0)
+        #trajectory['metrics'] = []
 
-    def add_to_entry(self, actor_name, state, metrics):
-        trajectory = self.internal_store[actor_name]
-        current_length = trajectory['current_length']
+        self._reset_states(trajectory['states'])
+
+    @staticmethod
+    def _reset_states(states):
+        for value in states.values():
+            value.fill_(0)
+
+    def add_to_entry(self, actor_name, env_id, state, metrics=None):
+        key_id = actor_name+"_env{}".format(env_id)
+        trajectory = self.internal_store[key_id]
+        current_length = trajectory['current_length'].item()
         states = trajectory['states']
 
         for key, value in state.items():
@@ -77,13 +86,13 @@ class TrajectoryStore():
 
         trajectory['current_length'] += 1
         if state['done']:
-            trajectory["complete"] = True
+            trajectory["complete"].fill_(True)
 
         if trajectory["complete"] or (trajectory['current_length'] == self.max_trajectory_length):
             self._drop(trajectory)
-            self._reset_trajectory(actor_name)
+            self._reset_trajectory(key_id)
 
-        trajectory["metrics"].append(metrics)
+        #trajectory["metrics"].append(metrics)
 
     def _drop(self, trajectory):
-        self.drop_off_queue.append(trajectory.copy())
+        self.drop_off_queue.append(copy.deepcopy(trajectory))
