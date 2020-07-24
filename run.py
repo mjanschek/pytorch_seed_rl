@@ -25,14 +25,14 @@ from pytorch_seed_rl.environments import EnvSpawner
 #from pytorch_seed_rl.model import Model
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
-NUM_ENVS = 8
+NUM_ENVS = 2
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
 TOTAL_EPISODE_STEP = 100
 
 NUM_LEARNERS = 1
-NUM_ACTORS = 4
+NUM_ACTORS = 8
 CSV_FILE = './csv/'
 
 
@@ -57,7 +57,7 @@ def run_threads(rank, world_size, env_spawner, model, optimizer, loss):
                                         loss))
 
         #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
-        train_rref = learner_rref.remote().loop_train()
+        train_rref = learner_rref.remote().loop_training()
         train_rref.to_here(timeout=0)
         learner_rref.rpc_sync().report()
     else:

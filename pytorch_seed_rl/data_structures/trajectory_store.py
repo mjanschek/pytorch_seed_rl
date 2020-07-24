@@ -20,6 +20,7 @@
 #from .structure import Trajectory
 import copy
 import torch
+from collections import deque
 
 
 class TrajectoryStore():
@@ -28,17 +29,14 @@ class TrajectoryStore():
         #. store a predefined data structure (not that flexible :-/)
     """
 
-    def __init__(self, actor_names, num_envs, zero_obs, drop_off_queue, device, max_trajectory_length=128):
+    def __init__(self, num_keys, zero_obs, device, max_trajectory_length=128):
 
         self.device = device
         self.zero_obs = zero_obs
         self.max_trajectory_length = max_trajectory_length
-        self.drop_off_queue = drop_off_queue
         self.trajectory_counter = 0
-
-        key_list = [x+"_env{}".format(y) for x in actor_names for y in range(num_envs)]
-
-        self.internal_store = {key: self._new_trajectory() for key in key_list}
+        self.drop_off_queue = deque(maxlen=num_keys)
+        self.internal_store = [self._new_trajectory() for _ in range(num_keys)]
 
     def _new_trajectory(self):
         trajectory = {
@@ -46,7 +44,7 @@ class TrajectoryStore():
             "complete": torch.tensor(False),
             "current_length": torch.tensor(0),
             "states": self._new_states(),
-            #"metrics": []
+            # "metrics": []
         }
 
         self.trajectory_counter += 1
@@ -60,11 +58,11 @@ class TrajectoryStore():
                 (self.max_trajectory_length,) + (1,)*(len(value.size())-1))
         return states
 
-    def _reset_trajectory(self, actor_name):
+    def _reset_trajectory(self, i):
         self.trajectory_counter += 1
-        trajectory = self.internal_store[actor_name]
+        trajectory = self.internal_store[i]
         trajectory['global_trajectory_number'].fill_(self.trajectory_counter)
-        trajectory['complete'].fill_(0)
+        trajectory['complete'].fill_(False)
         trajectory['current_length'].fill_(0)
         #trajectory['metrics'] = []
 
@@ -75,9 +73,8 @@ class TrajectoryStore():
         for value in states.values():
             value.fill_(0)
 
-    def add_to_entry(self, actor_name, env_id, state, metrics=None):
-        key_id = actor_name+"_env{}".format(env_id)
-        trajectory = self.internal_store[key_id]
+    def add_to_entry(self, i, state, metrics=None):
+        trajectory = self.internal_store[i]
         current_length = trajectory['current_length'].item()
         states = trajectory['states']
 
@@ -85,14 +82,14 @@ class TrajectoryStore():
             states[key][current_length].copy_(value[0])
 
         trajectory['current_length'] += 1
-        if state['done']:
+        if state['done'] and state['episode_step'] > 0:
             trajectory["complete"].fill_(True)
 
         if trajectory["complete"] or (trajectory['current_length'] == self.max_trajectory_length):
             self._drop(trajectory)
-            self._reset_trajectory(key_id)
+            self._reset_trajectory(i)
 
-        #trajectory["metrics"].append(metrics)
+        # trajectory["metrics"].append(metrics)
 
     def _drop(self, trajectory):
         self.drop_off_queue.append(copy.deepcopy(trajectory))

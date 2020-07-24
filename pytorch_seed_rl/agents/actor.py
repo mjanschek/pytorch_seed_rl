@@ -18,8 +18,9 @@ Consists of:
     #. n environments
 """
 import gc
-
 import torch.distributed.rpc as rpc
+
+from .. import agents
 
 
 class Actor():
@@ -31,6 +32,8 @@ class Actor():
 
     def __init__(self, rank, infer_rref, env_spawner):
         self.infer_rref = infer_rref
+        self.inference_method = agents.Learner.batched_inference
+
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
         self.rank = rank
@@ -40,8 +43,6 @@ class Actor():
         self.current_states = [env.initial() for env in self.envs]
 
         self.shutdown = False
-        self.rpc_id = 0
-        self._gen_rpc_id()
 
     def loop(self):
         """Loop acting method.
@@ -53,16 +54,16 @@ class Actor():
             env.close()
         gc.collect()
 
-    def _act(self):
+    def _act(self, i):
         """Wrap for async RPC method infer() ran on remote learner.
         """
-        pending_actions = [self.infer_rref.rpc_async().infer(self._next_rpc_id(),
-                                                             self.name,
-                                                             i,
-                                                             self.current_states[i])
-                           for i in range(self.num_envs)]
+        future_action = rpc.rpc_async(self.infer_rref.owner(),
+                               self.inference_method,
+                               args=(self.infer_rref,
+                                     self._gen_env_id(i),
+                                     self.current_states[i]))
 
-        return pending_actions
+        return future_action
 
     def act(self):
         """Interact with internal environment.
@@ -70,15 +71,13 @@ class Actor():
             #. Send current state (and metrics) off to batching layer for inference.
             #. Receive action.
         """
-        pending_actions = self._act()
-        for i in range(self.num_envs):
-            action, self.shutdown = pending_actions[i].wait()
+        future_actions = [self._act(i) for i in range(self.num_envs)]
+
+        for i, rpc_tuple in enumerate(future_actions):
+            action, self.shutdown, answer_id = rpc_tuple.wait()
+        
+            assert self._gen_env_id(i) == answer_id
             self.current_states[i] = self.envs[i].step(action)
 
-    def _next_rpc_id(self):
-        self.rpc_id += 1
-        return self._gen_rpc_id()
-
-    def _gen_rpc_id(self):
-        self.current_rpc_id = self.name + "-" + str(self.rpc_id)
-        return self.current_rpc_id
+    def _gen_env_id(self, i):
+        return self.rank*self.num_envs+i

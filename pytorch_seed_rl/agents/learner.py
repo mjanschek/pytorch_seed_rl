@@ -20,17 +20,25 @@ Consists of:
     # . l data prefetching threads
     # . 1 reporting/logging object
 """
+import copy
 import gc
+import sys
 import time
 from collections import deque
 
 import torch
-import torch.distributed.rpc as rpc
 import torch.multiprocessing as mp
-import torch.nn.functional as functional
+import torch.distributed.rpc as rpc
+from torch.distributed.rpc import RRef
+from torch.distributed.rpc.functions import async_execution
+from torch.futures import Future
 
 from ..data_structures.trajectory_store import TrajectoryStore
-from .actor import Actor
+from .. import agents
+
+
+def _gen_key(actor_name, env_id):
+    return actor_name+"_env{}".format(env_id)
 
 
 class Learner():
@@ -49,247 +57,209 @@ class Learner():
                  model,
                  optimizer,
                  loss,
-                 threads_infer=1,
-                 threads_prefetch=1,
-                 threads_train=1,
-                 inference_buffer=1,
-                 batchsize=32,
+                 inference_batchsize=8,
+                 training_batchsize=8,
                  rollout_length=64,
-                 total_epochs=10,
-                 total_steps=0,
+                 max_epoch=-1,
+                 max_steps=1000000,
+                 max_time=60,
                  save_path=""):
-        # spawn A actors with E environments each
 
-        # create stores:
-        # RecurrentStateStore: A X E slots for recurrent states (1 per actor)
-        # TrajectoryStore: A x E x L slots: A x E Trajectories with max_length L
+        # save arguments as attributes where needed
+        self.rollout_length = rollout_length
 
-        # spawn TrajectoryQueue (FIFO)
+        self.inference_batchsize = inference_batchsize
+        self.training_batchsize = training_batchsize
 
-        # spawn DeviceBuffer (calls TrajectoryQueue till BATCHSIZE trajectories are buffered)
+        self.total_num_envs = num_actors*env_spawner.num_envs
 
-        self.starttraining_lock = mp.Lock()
-        self.batch_lock = mp.Lock()
-        self.starttraining_lock.acquire()
+        self.max_epoch = max_epoch
+        self.max_steps = max_steps
+        self.max_time = max_time
 
-        self.batchsize = batchsize
-        self.id = rpc.get_worker_info().id
-        self.device = torch.device("cuda")
-        # self.model = model.to(self.device)
+        assert inference_batchsize <= self.total_num_envs
 
-        print("Agent", str(rank), "spawned.")
-
-        self.rref = rpc.RRef(self)
-
-        self.shutdown = False
-        self.epoch = 0
-        self.step = 0
-        self.timespent = 0
+        # set counters
+        self.inference_steps = 0
+        self.training_epoch = 0
+        self.training_steps = 0
+        self.training_time = 0
         self.final_time = 0
-        self.inference_counter = 0
-        self.training_counter = 0
-        self.steps_per_batch = rollout_length * batchsize
-        self.id_seen = []
 
-        self.env_info = env_spawner.env_info
+        # torch
+        self.device = torch.device('cuda')
+
+        # rpc stuff
+        self.shutdown = False
+        self.rref = RRef(self)
+
+        self.id = rpc.get_worker_info().id
+        self.name = rpc.get_worker_info().name
+        self.rank = rank
+
+        self.lock = mp.Lock()
+        self.pending_rpcs = deque(maxlen=self.total_num_envs)
+        self.future_answers = [Future() for i in range(self.total_num_envs)]
+
+        # init attributes
         self.dummy_obs = env_spawner.dummy_obs
-        for key, value in self._create_dummy_inference_info().items():
-            self.dummy_obs[key] = value
 
-        self.device_buffer = self._prepare_buffer(rollout_length,
-                                                  batchsize,
-                                                  self.dummy_obs,
-                                                  self.device)
-        self.prefetching_buffer = self._prepare_buffer(rollout_length,
-                                                       batchsize,
-                                                       self.dummy_obs,
-                                                       torch.device('cpu'))
+        dummy_frame = self.dummy_obs['frame']
+        self.inference_memory = torch.zeros_like(dummy_frame) \
+            .repeat((1, self.inference_batchsize) + (1,)*(len(dummy_frame.size())-2)) \
+            .cuda()
 
-        self.log = []
-
-        self.actor_rrefs = self._spawn_actors(num_learners,
-                                              num_actors,
-                                              env_spawner)
-        actor_names = [rref.owner_name() for rref in self.actor_rrefs]
-
-        self.trajectory_queue = deque(maxlen=batchsize*num_actors)
-        self.trajectory_store = TrajectoryStore(actor_names,
-                                                env_spawner.num_envs,
+        # spawn trajectory store
+        self.trajectory_store = TrajectoryStore(self.total_num_envs,
                                                 self.dummy_obs,
-                                                self.trajectory_queue,
                                                 self.device,
                                                 max_trajectory_length=rollout_length)
 
+        # spawn actors
+        agent_rref = rpc.RRef(self)
+        self.actor_rrefs = self._spawn_actors(agent_rref,
+                                              num_learners,
+                                              num_actors,
+                                              env_spawner)
+
+        # start prefetch thread
         self.prefetch_rpc = self.rref.rpc_async().prefetch()
 
     @staticmethod
-    def _prepare_buffer(rollout_length, batchsize, dummy_obs, device):
-        buffer = {}
-        buffer['states'] = {}
-        buffer['global_trajectory_number'] = torch.zeros(batchsize,
-                                                         device=device)
-        buffer['complete'] = torch.zeros(batchsize,
-                                         dtype=torch.bool,
-                                         device=device)
-        buffer['current_length'] = torch.zeros(batchsize,
-                                               device=device)
-        # buffer['metrics'] = [None]*batchsize
-
-        for key, value in dummy_obs.items():
-            buffer['states'][key] = value.repeat(
-                (rollout_length, batchsize) + (1,)*(len(value.size())-2)).to(device)
-        return buffer
-
-    def _spawn_actors(self, num_learners, num_actors, env_spawner):
+    def _spawn_actors(agent_rref, num_learners, num_actors, env_spawner):
         actor_rrefs = []
 
-        for i in range(num_learners, num_actors+num_learners):
-            print("Spawning actor{}".format(i))
-            actor_info = rpc.get_worker_info("actor{}".format(i))
+        for i in range(num_actors):
+            actor_info = rpc.get_worker_info("actor%d" % (i+num_learners))
             actor_rref = rpc.remote(actor_info,
-                                    Actor,
-                                    args=(i, self.rref, env_spawner))
-            actor_rref.remote().loop()
+                                    agents.Actor,
+                                    args=(i,
+                                          agent_rref,
+                                          env_spawner))
 
             actor_rrefs.append(actor_rref)
+            print("actor%d spawned" % (i+num_learners))
         return actor_rrefs
 
-    def infer(self, rpc_id, actor_name, env_id, state, metrics=None):
-        """Runs inference as rpc.
+    @staticmethod
+    @async_execution
+    def batched_inference(rref, caller_id, state, metrics=None):
+        self = rref.local_value()
 
-        Use https://github.com/pytorch/examples/blob/master/distributed/rpc/batch/reinforce.py for batched rpc reference!
-        """
+        f_answer = self.future_answers[caller_id].then(
+            lambda f_answers: f_answers.wait())
+
+        with self.lock:
+            self.pending_rpcs.append((caller_id, state))
+            if len(self.pending_rpcs) == self.inference_batchsize:
+                process_rpcs = [self.pending_rpcs.popleft()
+                                for _ in range(self.inference_batchsize)]
+                self.process_batch(process_rpcs)
+
+            if self.shutdown:
+                for _ in range(len(self.pending_rpcs)):
+                    caller_id, _ = self.pending_rpcs.pop()
+                    self.future_answers[caller_id].set_result(
+                        (self.dummy_obs['last_action'], True, caller_id))
+
+        return f_answer
+
+    def process_batch(self, pending_rpcs):
+
+        for i, rpc_tuple in enumerate(pending_rpcs):
+            _, state = rpc_tuple
+            frame = state['frame']
+            self.inference_memory[0, i].copy_(frame[0, 0])
+
+        # placeholder inference
+
         # pylint: disable=not-callable
-        action = torch.tensor(self.env_info['action_space'].sample(),
-                              dtype=torch.int64).view(1, 1)
+        actions = torch.ones((len(pending_rpcs), 1), dtype=torch.int64).cuda()
+        ##########
 
-        
-        # inference_time
-        time.sleep(0.05)
+        self.inference_steps += len(pending_rpcs)
 
-        self.inference_counter += 1
+        for i, rpc_tuple in enumerate(pending_rpcs):
+            caller_id, state = rpc_tuple
 
-        inference_info = self._create_dummy_inference_info()
+            self.trajectory_store.add_to_entry(caller_id, state)
 
-        state = {**state, **inference_info}
+            f_answers, self.future_answers[caller_id] = self.future_answers[caller_id], Future(
+            )
+            f_answers.set_result((actions[i].view(1, 1).cpu(),
+                                  self.shutdown,
+                                  caller_id))
 
-        self.trajectory_store.add_to_entry(actor_name, env_id, state, metrics)
+        self.inference_memory.fill_(0.)
 
-        return action, self.shutdown
-
-    def loop_train(self, max_epoch=-1, max_steps=10000, max_time=10):
+    def loop_training(self):
         start = time.time()
 
+        loop_rrefs = []
+
+        for rref in self.actor_rrefs:
+            loop_rrefs.append(rref.remote().loop())
+
         while not (self.shutdown or
-                   (self.epoch > max_epoch > 0) or
-                   (self.step > max_steps > 0) or
-                   (self.timespent > max_time > 0)):
-            self.train()
+                   (self.training_epoch > self.max_epoch > 0) or
+                   (self.training_steps > self.max_steps > 0) or
+                   (self.training_time > self.max_time > 0)):
+            self.batched_training()
+
         self.shutdown = True
         self.final_time = time.time()-start
-        self._cleanup()
+        self._cleanup(loop_rrefs)
 
-        #assert len(self.id_seen) == len(set(self.id_seen))
-
-    def train(self):
+    def batched_training(self):
         """Trains on sampled, prefetched trajecotries.
         """
         start = time.time()
 
-        self.prefetch_rpc.wait()
-        batch = self.device_buffer
+        trajectories = self.prefetch_rpc.wait()
         self.prefetch_rpc = self.rref.rpc_async().prefetch()
-        # print("TID    :", batch['global_trajectory_number'])
-        # print("lengths:", batch['current_length'])
 
-        # training_time
-        time.sleep(0.5)
-        self.step += sum(batch['current_length'])
-        self.id_seen.extend(batch['global_trajectory_number'].tolist())
-        assert sum(batch['current_length']) <= self.steps_per_batch
-        self.timespent += time.time()-start
+        # placeholder-training
+        for trajectory in trajectories:
+            self.training_steps += trajectory['current_length']
+        ##########
 
-    def _cleanup(self):
-        for rref in self.actor_rrefs:
-            del rref
+        self.training_time += time.time()-start
+
+    def _cleanup(self, loop_rrefs):
+        if all([loop_rref.to_here(timeout=0) for loop_rref in loop_rrefs]):
+            for actor_rref in self.actor_rrefs:
+                del actor_rref
 
         # Shutdown and remove queues
         print("Deleting unused trajectories...")
-        # while not self.trajectory_queue.empty():
-        #    trajectory = self.trajectory_queue.get()
-        #    del trajectory
-
-        del self.trajectory_queue
+        #del self.trajectory_queue
 
         gc.collect()
 
     def report(self):
         """Reports data to a logging system
         """
-        if self.timespent > 0:
-            fps = self.inference_counter / self.timespent
+        if self.training_time > 0:
+            fps = self.inference_steps / self.training_time
 
-            print("infered", str(self.inference_counter), "times")
-            print("in", str(self.timespent), "seconds")
+            print("infered", str(self.inference_steps), "times")
+            print("in", str(self.training_time), "seconds")
             print("==>", str(fps), "fps")
 
-            fps = self.step / self.timespent
-            print("trained", str(self.step), "times")
-            print("in", str(self.timespent), "seconds")
+            fps = self.training_steps / self.training_time
+            print("trained", str(self.training_steps), "times")
+            print("in", str(self.training_time), "seconds")
             print("==>", str(fps), "fps")
-
-    def checkpoint(self):
-        """Checkpoint the model
-        """
 
     def prefetch(self):
         """prefetches data from inference thread
         """
-        trajectory_batch_id = 0
-        #ids = []
-        while trajectory_batch_id < self.batchsize:
-            if len(self.trajectory_queue) > 0:
-                trajectory = self.trajectory_queue.popleft()
-
-                # ids.append(trajectory['global_trajectory_number'].tolist())
-                self._add_to_buffer(self.prefetching_buffer,
-                                    trajectory_batch_id,
-                                    trajectory)
-                trajectory_batch_id += 1
-            else:
-                time.sleep(0.1)
-
-        self._copy_into(self.prefetching_buffer, self.device_buffer)
-
-    @staticmethod
-    def _add_to_buffer(buffer, trajectory_batch_id, trajectory):
-        for key, value in trajectory['states'].items():
-            buffer['states'][key][:, trajectory_batch_id].copy_(value[:, 0])
-
-        for key, value in trajectory.items():
-            if key != 'states':
-                buffer[key][trajectory_batch_id].copy_(value)
-
-    @staticmethod
-    def _copy_into(source_buffer, target_buffer):
-
-        for key, value in source_buffer['states'].items():
-            target_buffer['states'][key].copy_(value, non_blocking=True)
-
-        for key, value in source_buffer.items():
-            if key != 'states':
-                target_buffer[key].copy_(value, non_blocking=True)
+        while True:
+            if len(self.trajectory_store.drop_off_queue) >= self.training_batchsize:
+                trajectories = [self.trajectory_store.drop_off_queue.popleft()]
+                return trajectories
+            time.sleep(0.1)
 
     @staticmethod
     def listdict_to_dictlist(listdict):
         return {k: [dic[k] for dic in listdict] for k in listdict[0]}
-
-    def _create_dummy_inference_info(self):
-        return {
-            'behaviour_policy': torch.zeros((1, 1, self.env_info['action_space'].n),
-                                            dtype=torch.float,
-                                            ),
-            'behaviour_value': torch.zeros((1, 1),
-                                           dtype=torch.float,
-                                           )
-        }
