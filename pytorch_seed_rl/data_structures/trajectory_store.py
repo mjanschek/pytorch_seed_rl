@@ -34,17 +34,21 @@ class TrajectoryStore():
         self.device = device
         self.zero_obs = zero_obs
         self.max_trajectory_length = max_trajectory_length
+
         self.trajectory_counter = 0
+        self.episode_counter = 0
+
         self.drop_off_queue = deque(maxlen=num_keys)
         self.internal_store = [self._new_trajectory() for _ in range(num_keys)]
 
     def _new_trajectory(self):
         trajectory = {
-            "global_trajectory_number": torch.tensor(self.trajectory_counter),
+            "global_trajectory_id": torch.tensor(self.trajectory_counter),
+            "global_episode_id": torch.tensor(self.episode_counter),
             "complete": torch.tensor(False),
             "current_length": torch.tensor(0),
             "states": self._new_states(),
-            # "metrics": []
+            "metrics": []
         }
 
         self.trajectory_counter += 1
@@ -58,15 +62,19 @@ class TrajectoryStore():
                 (self.max_trajectory_length,) + (1,)*(len(value.size())-1))
         return states
 
-    def _reset_trajectory(self, i):
+    def _reset_trajectory(self, i, complete):
         self.trajectory_counter += 1
-        trajectory = self.internal_store[i]
-        trajectory['global_trajectory_number'].fill_(self.trajectory_counter)
-        trajectory['complete'].fill_(False)
-        trajectory['current_length'].fill_(0)
-        #trajectory['metrics'] = []
 
+        trajectory = self.internal_store[i]
+        trajectory['global_trajectory_id'].fill_(self.trajectory_counter)
+        trajectory['current_length'].fill_(0)
+        trajectory['metrics'] = []
         self._reset_states(trajectory['states'])
+
+        if complete:
+            self.episode_counter += 1
+            trajectory['global_episode_id'].fill_(self.episode_counter)
+            trajectory['complete'].fill_(False)
 
     @staticmethod
     def _reset_states(states):
@@ -82,14 +90,21 @@ class TrajectoryStore():
             states[key][current_length].copy_(value[0])
 
         trajectory['current_length'] += 1
-        if state['done'] and state['episode_step'] > 0:
+        if state['done'] and state['episode_step'] > 1:
             trajectory["complete"].fill_(True)
 
         if trajectory["complete"] or (trajectory['current_length'] == self.max_trajectory_length):
             self._drop(trajectory)
-            self._reset_trajectory(i)
+            self._reset_trajectory(i, trajectory["complete"])
 
-        # trajectory["metrics"].append(metrics)
+        trajectory["metrics"].append(metrics)
 
     def _drop(self, trajectory):
+        trajectory["metrics"] = listdict_to_dictlist(trajectory["metrics"])
+        for k, v in trajectory["metrics"].items():
+            trajectory["metrics"][k] = torch.cat(v)
         self.drop_off_queue.append(copy.deepcopy(trajectory))
+
+
+def listdict_to_dictlist(listdict):
+    return {k: [dic[k] for dic in listdict] for k in listdict[0]}

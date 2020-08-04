@@ -3,3 +3,4 @@
 
 from .learner import Learner
 from .actor import Actor
+from .logger import Logger

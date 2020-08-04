@@ -18,7 +18,10 @@ Consists of:
     #. n environments
 """
 import gc
-import torch.distributed.rpc as rpc
+import time
+
+from torch import tensor
+from torch.distributed import rpc
 
 from .. import agents
 
@@ -42,26 +45,40 @@ class Actor():
         self.envs = env_spawner.spawn()
         self.current_states = [env.initial() for env in self.envs]
 
+        self.steps_infered = 0
+
+        # pylint: disable=not-callable
+        self.metrics = [{'latency': tensor(0.).view(1,1)} for _ in range(self.num_envs)]
+
         self.shutdown = False
 
     def loop(self):
         """Loop acting method.
         """
+        for i in range(self.num_envs):
+            self.infer_rref.rpc_sync().check_in(self._gen_env_id(i))
+
         while not self.shutdown:
             self.act()
 
+        for i in range(self.num_envs):
+            self.infer_rref.rpc_sync().check_out(self._gen_env_id(i))
+
         for env in self.envs:
             env.close()
-        gc.collect()
+
+        return True
 
     def _act(self, i):
         """Wrap for async RPC method infer() ran on remote learner.
         """
         future_action = rpc.rpc_async(self.infer_rref.owner(),
-                               self.inference_method,
-                               args=(self.infer_rref,
-                                     self._gen_env_id(i),
-                                     self.current_states[i]))
+                                      self.inference_method,
+                                      args=(self.infer_rref,
+                                            self._gen_env_id(i),
+                                            self.current_states[i],
+                                            self.metrics[i]),
+                                      timeout=60)
 
         return future_action
 
@@ -71,13 +88,27 @@ class Actor():
             #. Send current state (and metrics) off to batching layer for inference.
             #. Receive action.
         """
+        send_time = time.time()
         future_actions = [self._act(i) for i in range(self.num_envs)]
 
         for i, rpc_tuple in enumerate(future_actions):
-            action, self.shutdown, answer_id = rpc_tuple.wait()
-        
+            action, self.shutdown, answer_id, inference_infos = rpc_tuple.wait()
+
+            latency = time.time() - send_time
+
+            # sanity check
             assert self._gen_env_id(i) == answer_id
+
             self.current_states[i] = self.envs[i].step(action)
+            self.current_states[i] = {
+                **self.current_states[i], **inference_infos}
+
+            # pylint: disable=not-callable
+            self.metrics[i] = {
+                'latency': tensor(latency).view(1,1)
+            }
+        
+        self.steps_infered += self.num_envs
 
     def _gen_env_id(self, i):
         return self.rank*self.num_envs+i

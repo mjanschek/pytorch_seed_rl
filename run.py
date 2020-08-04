@@ -25,7 +25,7 @@ from pytorch_seed_rl.environments import EnvSpawner
 #from pytorch_seed_rl.model import Model
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
-NUM_ENVS = 2
+NUM_ENVS = 4
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
@@ -59,14 +59,13 @@ def run_threads(rank, world_size, env_spawner, model, optimizer, loss):
         #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
         train_rref = learner_rref.remote().loop_training()
         train_rref.to_here(timeout=0)
-        learner_rref.rpc_sync().report()
+        #learner_rref.rpc_sync().report()
+        # block until all rpcs finish, and shutdown the RPC instance
     else:
         rpc.init_rpc(ACTOR_NAME.format(rank),
                      rank=rank,
                      world_size=world_size)
-    # block until all rpcs finish, and shutdown the RPC instance
     rpc.shutdown()
-    print("Process", str(rank), "shut down")
 
 
 def main():
@@ -82,12 +81,14 @@ def main():
 
     world_size = NUM_LEARNERS + NUM_ACTORS
 
+    mp.set_start_method('spawn')
     mp.spawn(
         run_threads,
         args=(world_size, env_spawner, model, optimizer, loss),
         nprocs=world_size,
         join=True
     )
+    # print("All Processes closed.")
 
 
 if __name__ == '__main__':
