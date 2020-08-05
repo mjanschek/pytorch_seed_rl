@@ -21,6 +21,8 @@ from typing import List, Dict, Union, Any
 import csv
 import os
 
+import torch
+
 CsvRowtype = Dict[str, Union[int, float]]
 
 
@@ -75,7 +77,8 @@ class Logger():
             del log_data['frame']
 
         for k, v in log_data.items():
-            log_data[k] = v.cpu().numpy().flatten()[0]
+            if isinstance(v, torch.Tensor):
+                log_data[k] = v.detach().cpu().numpy().flatten()[0]
 
         return log_data
 

@@ -15,18 +15,46 @@
 """Collection of functions necessary for rl objective calculations.
 """
 
+import torch
+import torch.nn.functional as F
+
+
 def entropy_loss():
     """Calculates entropy loss from a policy and its log counterpart.
     """
+
 
 def policy_gradient():
     """Might not make sense with other function blocks
     """
 
+
 def v_trace():
     """Consider IMPALA paper.
     """
 
+
 def gae_v():
     """Consider GAE_V paper.
     """
+
+
+def compute_baseline_loss(advantages):
+    return 0.5 * torch.sum(advantages ** 2)
+
+
+def compute_entropy_loss(logits):
+    """Return the entropy loss, i.e., the negative entropy of the policy."""
+    policy = F.softmax(logits, dim=-1)
+    log_policy = F.log_softmax(logits, dim=-1)
+    return torch.sum(policy * log_policy)
+
+
+def compute_policy_gradient_loss(logits, actions, advantages):
+    cross_entropy = F.nll_loss(
+        F.log_softmax(torch.flatten(logits, 0, 1), dim=-1),
+        target=torch.flatten(actions, 0, 1).to(torch.long),
+        reduction="none",
+    )
+    cross_entropy = cross_entropy.view_as(advantages)
+    return torch.sum(cross_entropy * advantages.detach())

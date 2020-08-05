@@ -45,8 +45,8 @@ class EnvSpawner():
         }
 
         dummy_obs = dummy_env.initial()
-        dummy_obs['frame'] = torch.zeros_like(dummy_obs['frame'])
-        dummy_obs['done'] = torch.zeros_like(dummy_obs['done'])
+        #dummy_obs['frame'] = torch.zeros_like(dummy_obs['frame'])
+        #dummy_obs['done'] = torch.zeros_like(dummy_obs['done'])
 
         dummy_env.close()
         del dummy_env

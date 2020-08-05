@@ -19,13 +19,16 @@ import os
 
 import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
+from torch.optim import RMSprop
+from torch.nn import DataParallel
 
 from pytorch_seed_rl.agents import Learner
 from pytorch_seed_rl.environments import EnvSpawner
+from pytorch_seed_rl.nets import AtariNet
 #from pytorch_seed_rl.model import Model
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
-NUM_ENVS = 4
+NUM_ENVS = 2
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
@@ -35,8 +38,10 @@ NUM_LEARNERS = 1
 NUM_ACTORS = 8
 CSV_FILE = './csv/'
 
+USE_LSTM = False
 
-def run_threads(rank, world_size, env_spawner, model, optimizer, loss):
+
+def run_threads(rank, world_size, env_spawner, model, optimizer):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '29500'
 
@@ -53,8 +58,7 @@ def run_threads(rank, world_size, env_spawner, model, optimizer, loss):
                                         NUM_ACTORS,
                                         env_spawner,
                                         model,
-                                        optimizer,
-                                        loss))
+                                        optimizer))
 
         #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
         train_rref = learner_rref.remote().loop_training()
@@ -73,18 +77,28 @@ def main():
     env_spawner = EnvSpawner(ENV_ID, NUM_ENVS)
 
     # model
-    model = None
-    # model.share_memory()
+    model = AtariNet(
+        env_spawner.env_info['observation_space'].shape,
+        env_spawner.env_info['action_space'].n, 
+        USE_LSTM
+    )
+    model.share_memory()
+    #model = DataParallel(model)
 
-    optimizer = None
-    loss = None
+    optimizer = RMSprop(
+        model.parameters(),
+        lr=0.00048,
+        momentum=0,
+        eps=0.01,
+        alpha=0.99
+    )
 
     world_size = NUM_LEARNERS + NUM_ACTORS
 
     mp.set_start_method('spawn')
     mp.spawn(
         run_threads,
-        args=(world_size, env_spawner, model, optimizer, loss),
+        args=(world_size, env_spawner, model, optimizer),
         nprocs=world_size,
         join=True
     )

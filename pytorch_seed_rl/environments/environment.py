@@ -38,7 +38,7 @@ class Environment:
         initial_reward = torch.zeros(1, 1)
         # This supports only single-tensor actions ATM.
         initial_last_action = torch.zeros(1, 1, dtype=torch.int64)
-        initial_done = torch.ones(1, 1, dtype=torch.uint8)
+        initial_done = torch.ones(1, 1, dtype=torch.bool)
         initial_frame = _format_frame(self.reset())
         return dict(frame=initial_frame,
                     reward=initial_reward,
@@ -60,7 +60,7 @@ class Environment:
         frame = _format_frame(frame)
         # pylint: disable=not-callable
         reward = torch.tensor(reward).view(1, 1)
-        done = torch.tensor(done).view(1, 1).to(dtype=torch.uint8)
+        done = torch.tensor(done).view(1, 1)
 
         return dict(frame=frame,
                     reward=reward,

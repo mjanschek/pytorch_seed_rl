@@ -38,7 +38,7 @@ class TrajectoryStore():
         self.trajectory_counter = 0
         self.episode_counter = 0
 
-        self.drop_off_queue = deque(maxlen=num_keys)
+        self.drop_off_queue = deque()
         self.internal_store = [self._new_trajectory() for _ in range(num_keys)]
 
     def _new_trajectory(self):
@@ -85,8 +85,8 @@ class TrajectoryStore():
         trajectory = self.internal_store[i]
         current_length = trajectory['current_length'].item()
         states = trajectory['states']
-
         for key, value in state.items():
+            # print(key, states[key][current_length].shape, value.shape)
             states[key][current_length].copy_(value[0])
 
         trajectory['current_length'] += 1
@@ -103,7 +103,9 @@ class TrajectoryStore():
         trajectory["metrics"] = listdict_to_dictlist(trajectory["metrics"])
         for k, v in trajectory["metrics"].items():
             trajectory["metrics"][k] = torch.cat(v)
-        self.drop_off_queue.append(copy.deepcopy(trajectory))
+
+        t = copy.deepcopy(trajectory)
+        self.drop_off_queue.append(t)
 
 
 def listdict_to_dictlist(listdict):

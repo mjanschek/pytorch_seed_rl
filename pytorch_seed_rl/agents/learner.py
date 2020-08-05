@@ -29,15 +29,18 @@ from collections import deque
 
 import numpy as np
 import torch
+from torch import nn
 import torch.multiprocessing as mp
 from torch.distributed import rpc
 from torch.distributed.rpc import RRef
 from torch.distributed.rpc.functions import async_execution
 from torch.distributions import Categorical
 from torch.futures import Future
+import torch.nn.functional as F
 
 from ..data_structures.trajectory_store import TrajectoryStore
 from .. import agents
+from ..functional import vtrace, util
 
 
 def _gen_key(actor_name, env_id):
@@ -59,10 +62,9 @@ class Learner():
                  env_spawner,
                  model,
                  optimizer,
-                 loss,
-                 inference_batchsize=16,
+                 inference_batchsize=8,
                  training_batchsize=8,
-                 rollout_length=64,
+                 rollout_length=80,
                  max_epoch=-1,
                  max_steps=1000000,
                  max_time=10,
@@ -85,14 +87,26 @@ class Learner():
         assert inference_batchsize <= self.total_num_envs
 
         # set counters
+        self.inference_epoch = 0
         self.inference_steps = 0
+
         self.training_epoch = 0
         self.training_steps = 0
         self.training_time = 0
+
         self.final_time = 0
+        self.mean_latency = 0
 
         # torch
         self.device = torch.device('cuda')
+        self.model = model.to(self.device)
+        self.model.share_memory()
+        self.optimizer = optimizer
+
+        def lr_lambda(epoch):
+            return 1 - min(epoch * rollout_length * training_batchsize, max_steps) / max_steps
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(
+            self.optimizer, lr_lambda)
 
         # rpc stuff
         self.active_envs = {}
@@ -104,6 +118,7 @@ class Learner():
         self.rank = rank
 
         self.lock = mp.Lock()
+        self.model_lock = mp.Lock()
         self.pending_rpcs = deque(maxlen=self.total_num_envs)
         self.future_answers = [Future() for i in range(self.total_num_envs)]
 
@@ -111,14 +126,14 @@ class Learner():
 
         # init attributes
         self.dummy_obs = env_spawner.dummy_obs
-        self.dummy_obs['last_policy'] = torch.zeros(
-            1, self.env_info['action_space'].n)
-        self.dummy_obs['last_value'] = torch.zeros(1, 1)
+        self.dummy_obs['action'] = torch.zeros(1, 1)
+        self.dummy_obs['baseline'] = torch.zeros(1, 1)
+        self.dummy_obs['policy_logits'] = torch.zeros(
+            1, 1, self.env_info['action_space'].n)
 
         dummy_frame = self.dummy_obs['frame']
-        self.inference_memory = torch.zeros_like(dummy_frame) \
-            .repeat((1, self.inference_batchsize) + (1,)*(len(dummy_frame.size())-2)) \
-            .cuda()
+        self.inference_memory = torch.zeros_like(dummy_frame, device=self.device) \
+            .repeat((1, self.inference_batchsize) + (1,)*(len(dummy_frame.size())-2))
 
         # spawn trajectory store
         self.trajectory_store = TrajectoryStore(self.total_num_envs,
@@ -134,7 +149,7 @@ class Learner():
                            env_spawner)
 
         self.logger = agents.Logger(
-            ['csv'], ['episodes'], "/".join([self.save_path, "logs"]))
+            ['csv'], ['episodes', 'training'], "/".join([self.save_path, "logs"]))
 
         # start prefetch thread
         self.batch_queue = mp.Queue(maxsize=1)
@@ -163,6 +178,7 @@ class Learner():
 
         with self.lock:
             self.pending_rpcs.append((caller_id, state, metrics))
+            # print("pending_rpcs:", len(self.pending_rpcs))
             if len(self.pending_rpcs) == self.inference_batchsize:
                 process_rpcs = [self.pending_rpcs.popleft()
                                 for _ in range(self.inference_batchsize)]
@@ -172,41 +188,59 @@ class Learner():
 
     def process_batch(self, pending_rpcs):
 
-        for i, rpc_tuple in enumerate(pending_rpcs):
-            _, state, _ = rpc_tuple
-            frame = state['frame']
-            self.inference_memory[0, i].copy_(frame[0, 0])
+        # for i, rpc_tuple in enumerate(pending_rpcs):
+        #     _, state, _ = rpc_tuple
+        #     frame = state['frame']
+        #     self.inference_memory[0, i].copy_(frame[0, 0])
+
+        states = listdict_to_dictlist([s for _, s, _ in pending_rpcs])
+        for k, v in states.items():
+            states[k] = torch.cat(v, dim=1).to(self.device)
 
         # placeholder inference
 
         # pylint: disable=not-callable
-        actions, policies, values = self._run_inference()
+        # actions, policies, values = self._run_inference()
+
+        # with self.model_lock:
+        inference_output, _ = self.model(states)
+
+        states = {k: v.cpu().detach()
+                  for k, v in {**states, **inference_output}.items()}
         ##########
 
         self.inference_steps += self.inference_batchsize
+        self.inference_epoch += 1
+        # print("inference_epoch:", self.inference_epoch)
 
         timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
 
-        for i, rpc_tuple in enumerate(pending_rpcs):
-            caller_id, state, metrics = rpc_tuple
+        
 
+        latencies = []
+        for i, rpc_tuple in enumerate(pending_rpcs):
+            caller_id, _, metrics = rpc_tuple
+            state = {k: v[0, i].view(self.dummy_obs[k].shape)
+                     for k, v in states.items()}
+
+            latencies.append(metrics['latency'])
             metrics['timestamp'] = timestamp.clone()
             self.trajectory_store.add_to_entry(caller_id, state, metrics)
 
-            action = actions[i].view(1, 1).cpu()
-            policy = policies[i].view(1, self.env_info['action_space'].n).cpu()
-            value = values[i].view(1, 1).cpu()
+            action = inference_output['action'][0][i].view(1, 1).cpu().detach()
 
             f_answers = self.future_answers[caller_id]
             self.future_answers[caller_id] = Future()
             f_answers.set_result((action,
                                   self.shutdown,
                                   caller_id,
-                                  dict(last_policy=policy,
-                                       last_value=value)
+                                  dict()
                                   ))
 
-        self.inference_memory.fill_(0.)
+        mean_latency_batch = torch.cat(latencies).mean()
+        self.mean_latency += 1/(self.inference_steps)*(mean_latency_batch - self.mean_latency)
+
+        # self.inference_memory.fill_(0.)
 
     def _run_inference(self):
         n_actions = self.env_info['action_space'].n
@@ -239,8 +273,9 @@ class Learner():
         """
         start = time.time()
 
+        # print("get batch")
         try:
-            batch = self.batch_queue.get(timeout=30)
+            batch = self.batch_queue.get(timeout=10)
         except Empty:
             self.training_time += time.time()-start
             return
@@ -249,7 +284,27 @@ class Learner():
 
         # print(trajectories[0])
         # batch = self._to_batch(trajectories)
+        for k, v in batch.items():
+            batch[k] = v.to(self.device)
+
+        try:
+            output, _ = self.model(batch)
+        except Exception:
+            raise Exception
+        # print("model tested#1")
+
+        # print("_learn_from_batch")
+        # with self.model_lock:
         training_metrics = self._learn_from_batch(batch)
+        # print("log training")
+        self.logger.log('training', training_metrics)
+        # print("training logged")
+        # try:
+        #     output, _ = self.model(batch)
+        # except RuntimeError:
+        #     raise RuntimeError
+        # print("model tested")
+        # print("training_epoch:", self.training_epoch)
         ##########
         # self.shutdown = True
 
@@ -260,8 +315,6 @@ class Learner():
     def _log_trajectory(self, trajectory):
         gti = trajectory['global_trajectory_id']
         gei = trajectory['global_episode_id']
-        
-        
 
         if trajectory['complete'].item() is True:
             i = trajectory['current_length']-1
@@ -281,15 +334,91 @@ class Learner():
         for k, v in states.items():
             states[k] = torch.cat(v, dim=1)
 
-        states['current_length'] = torch.stack([t['current_length'] for t in trajectories])
+        states['current_length'] = torch.stack(
+            [t['current_length'] for t in trajectories])
 
         return states
 
-    def _learn_from_batch(self, batch):
-        #batch_shape = batch['reward'].size()[:2]
-        self.training_steps += batch['current_length'].sum().item()
+    def _learn_from_batch(self,
+                          batch,
+                          baseline_cost=0.5,
+                          entropy_cost=0.0006,
+                          discounting=0.99,
+                          reward_clipping="abs_one",
+                          grad_norm_clipping=40.):
+        learner_outputs, _ = self.model(batch)
 
-        return {}
+        batch_length = batch['current_length'].sum().item()
+
+        # Take final value function slice for bootstrapping.
+        bootstrap_value = learner_outputs["baseline"][-1]
+
+        # Move from obs[t] -> action[t] to action[t] -> obs[t].
+        batch = {key: tensor[1:] for key, tensor in batch.items()}
+        learner_outputs = {key: tensor[:-1]
+                           for key, tensor in learner_outputs.items()}
+
+        rewards = batch["reward"]
+        if reward_clipping == "abs_one":
+            clipped_rewards = torch.clamp(rewards, -1, 1)
+        elif reward_clipping == "none":
+            clipped_rewards = rewards
+
+        discounts = (~batch["done"]).float() * discounting
+
+        vtrace_returns = vtrace.from_logits(
+            behavior_policy_logits=batch["policy_logits"],
+            target_policy_logits=learner_outputs["policy_logits"],
+            actions=batch["action"],
+            discounts=discounts,
+            rewards=clipped_rewards,
+            values=learner_outputs["baseline"],
+            bootstrap_value=bootstrap_value,
+        )
+
+        pg_loss = util.compute_policy_gradient_loss(
+            learner_outputs["policy_logits"],
+            batch["action"],
+            vtrace_returns.pg_advantages,
+        )
+        # baseline_loss = baseline_cost * util.compute_baseline_loss(
+        #     vtrace_returns.vs - learner_outputs["baseline"]
+        # )
+
+        baseline_loss = F.mse_loss(
+            learner_outputs["baseline"], vtrace_returns.vs)
+
+        entropy_loss = util.compute_entropy_loss(
+            learner_outputs["policy_logits"]
+        )
+
+        total_loss = pg_loss \
+            + baseline_cost * baseline_loss \
+            + entropy_cost * entropy_loss
+
+        self.training_steps += batch_length
+        self.training_epoch += 1
+
+        # pylint: disable=not-callable
+        timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
+
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        nn.utils.clip_grad_norm_(self.model.parameters(), grad_norm_clipping)
+        self.optimizer.step()
+        self.scheduler.step()
+
+
+        stats = {
+            "training_steps": self.training_steps,
+            "timestamp": timestamp,
+            "total_loss": total_loss,
+            "pg_loss": pg_loss,
+            "baseline_loss": baseline_loss,
+            "entropy_loss": entropy_loss,
+        }
+
+        return stats
 
     def _answer_rpcs(self):
         while len(self.active_envs) > 0:
@@ -304,8 +433,7 @@ class Learner():
                 (self.dummy_obs['last_action'],
                  True,
                  caller_id,
-                 dict(last_policy=self.dummy_obs['last_policy'],
-                      last_value=self.dummy_obs['last_value'])))
+                 dict()))
 
     def _cleanup(self):
         # Answer pending rpcs to enable actors to terminate
@@ -333,9 +461,10 @@ class Learner():
         gc.collect()
 
     def report(self):
-        """Reports data to a logging system
+        """Reports data to CLI
         """
         if self.training_time > 0:
+            print("\n============== REPORT ==============")
             fps = self.inference_steps / self.training_time
 
             print("infered", str(self.inference_steps), "times")
@@ -346,6 +475,8 @@ class Learner():
             print("trained", str(self.training_steps), "times")
             print("in", str(self.training_time), "seconds")
             print("==>", str(fps), "fps")
+
+            print("Mean inference latency:", str(self.mean_latency.item()), "seconds")
 
     def prefetch(self):
         """prefetches data from inference thread
@@ -361,6 +492,8 @@ class Learner():
                 batch = self._to_batch(trajectories)
                 self.batch_queue.put(batch)
             time.sleep(0.1)
+            # print("batchqueue:", self.batch_queue.qsize())
+            # print("drop_off:", len(self.trajectory_store.drop_off_queue))
 
     def check_in(self, caller_id):
         self.active_envs[caller_id] = True
@@ -371,3 +504,7 @@ class Learner():
 
 def listdict_to_dictlist(listdict):
     return {k: [dic[k] for dic in listdict] for k in listdict[0]}
+
+
+def dictlist_to_listdict(dictlist):
+    return [dict(zip(dictlist, t)) for t in zip(*dictlist.values())]

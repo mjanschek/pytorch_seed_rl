@@ -48,7 +48,8 @@ class Actor():
         self.steps_infered = 0
 
         # pylint: disable=not-callable
-        self.metrics = [{'latency': tensor(0.).view(1,1)} for _ in range(self.num_envs)]
+        self.metrics = [{'latency': tensor(0.).view(1, 1)}
+                        for _ in range(self.num_envs)]
 
         self.shutdown = False
 
@@ -78,7 +79,7 @@ class Actor():
                                             self._gen_env_id(i),
                                             self.current_states[i],
                                             self.metrics[i]),
-                                      timeout=60)
+                                      timeout=5)
 
         return future_action
 
@@ -105,9 +106,9 @@ class Actor():
 
             # pylint: disable=not-callable
             self.metrics[i] = {
-                'latency': tensor(latency).view(1,1)
+                'latency': tensor(latency).view(1, 1)
             }
-        
+
         self.steps_infered += self.num_envs
 
     def _gen_env_id(self, i):
