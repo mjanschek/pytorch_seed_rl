@@ -63,13 +63,14 @@ class Learner():
                  env_spawner,
                  model,
                  optimizer,
-                 inference_batchsize=8,
-                 training_batchsize=8,
+                 inference_batchsize=4,
+                 training_batchsize=4,
                  rollout_length=80,
                  max_epoch=-1,
-                 max_steps=1000000,
-                 max_time=10,
-                 save_path="."):
+                 max_steps=-1,
+                 max_time=-1,
+                 save_path=".",
+                 exp_name=""):
 
         # save arguments as attributes where needed
         self.rollout_length = rollout_length
