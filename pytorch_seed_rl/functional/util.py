@@ -19,21 +19,6 @@ import torch
 import torch.nn.functional as F
 
 
-def entropy_loss():
-    """Calculates entropy loss from a policy and its log counterpart.
-    """
-
-
-def policy_gradient():
-    """Might not make sense with other function blocks
-    """
-
-
-def v_trace():
-    """Consider IMPALA paper.
-    """
-
-
 def gae_v():
     """Consider GAE_V paper.
     """
