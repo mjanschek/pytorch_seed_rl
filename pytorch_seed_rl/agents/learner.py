@@ -22,6 +22,7 @@ Consists of:
 """
 import copy
 from queue import Empty
+import pprint
 import gc
 import sys
 import time
@@ -83,6 +84,7 @@ class Learner():
         self.max_time = max_time
 
         self.save_path = save_path
+        self.exp_name = exp_name
 
         assert inference_batchsize <= self.total_num_envs
 
@@ -149,7 +151,7 @@ class Learner():
                            env_spawner)
 
         self.logger = agents.Logger(
-            ['csv'], ['episodes', 'training'], "/".join([self.save_path, "logs"]))
+            ['csv'], ['episodes', 'training', 'system'], "/".join([self.save_path, "logs", self.exp_name]))
 
         # start prefetch thread
         self.batch_queue = mp.Queue(maxsize=1)
@@ -215,8 +217,6 @@ class Learner():
 
         timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
 
-        
-
         latencies = []
         for i, rpc_tuple in enumerate(pending_rpcs):
             caller_id, _, metrics = rpc_tuple
@@ -236,9 +236,6 @@ class Learner():
                                   caller_id,
                                   dict()
                                   ))
-
-        mean_latency_batch = torch.cat(latencies).mean()
-        self.mean_latency += 1/(self.inference_steps)*(mean_latency_batch - self.mean_latency)
 
         # self.inference_memory.fill_(0.)
 
@@ -263,13 +260,23 @@ class Learner():
                    (self.training_time > self.max_time > 0)):
             self.batched_training()
 
+            system_metrics = {
+                "training_time": self.training_time,
+                "training_steps": self.training_steps,
+                "inference_steps": self.inference_steps,
+                "drop_off_queuesize": len(self.trajectory_store.drop_off_queue),
+                "batch_queuesize": self.batch_queue.qsize(),
+                "pending_rpcs": len(self.pending_rpcs)
+            }
+            self.logger.log('system', system_metrics)
+
         self.shutdown = True
         self.final_time = time.time()-start
         self._cleanup()
         self.report()
 
     def batched_training(self):
-        """Trains on sampled, prefetched trajecotries.
+        """Trains on sampled, prefetched trajectories.
         """
         start = time.time()
 
@@ -296,8 +303,12 @@ class Learner():
         # print("_learn_from_batch")
         # with self.model_lock:
         training_metrics = self._learn_from_batch(batch)
+        self.training_time += time.time()-start
         # print("log training")
         self.logger.log('training', training_metrics)
+
+        if self.training_epoch % 10 == 0:
+            print(pprint.pformat(training_metrics))
         # print("training logged")
         # try:
         #     output, _ = self.model(batch)
@@ -310,8 +321,6 @@ class Learner():
 
         # logger.log_episode(trajectory)
 
-        self.training_time += time.time()-start
-
     def _log_trajectory(self, trajectory):
         gti = trajectory['global_trajectory_id']
         gei = trajectory['global_episode_id']
@@ -320,11 +329,14 @@ class Learner():
             i = trajectory['current_length']-1
             states = trajectory['states']
             metrics = trajectory['metrics']
+
             episode_data = {
                 'global_episode_id': gei,
+                'training_steps': self.training_steps,
                 'return': states['episode_return'][i],
                 'length': states['episode_step'][i],
-                'timestamp': metrics['timestamp'][i-1]
+                'timestamp': metrics['timestamp'][i-1],
+                'mean_latency': metrics['latency'].mean()
             }
             self.logger.log('episodes', episode_data)
 
@@ -342,7 +354,7 @@ class Learner():
     def _learn_from_batch(self,
                           batch,
                           baseline_cost=0.5,
-                          entropy_cost=0.0006,
+                          entropy_cost=0.01,
                           discounting=0.99,
                           reward_clipping="abs_one",
                           grad_norm_clipping=40.):
@@ -386,7 +398,7 @@ class Learner():
         # )
 
         baseline_loss = F.mse_loss(
-            learner_outputs["baseline"], vtrace_returns.vs)
+            learner_outputs["baseline"], vtrace_returns.vs, reduction='sum')
 
         entropy_loss = util.compute_entropy_loss(
             learner_outputs["policy_logits"]
@@ -408,14 +420,14 @@ class Learner():
         self.optimizer.step()
         self.scheduler.step()
 
-
         stats = {
+            "training_time": self.training_time,
+            "training_epoch": self.training_epoch,
             "training_steps": self.training_steps,
-            "timestamp": timestamp,
-            "total_loss": total_loss,
-            "pg_loss": pg_loss,
-            "baseline_loss": baseline_loss,
-            "entropy_loss": entropy_loss,
+            "total_loss": total_loss.detach().cpu().item(),
+            "pg_loss": pg_loss.detach().cpu().item(),
+            "baseline_loss": baseline_loss.detach().cpu().item(),
+            "entropy_loss": entropy_loss.detach().cpu().item(),
         }
 
         return stats
@@ -476,7 +488,8 @@ class Learner():
             print("in", str(self.training_time), "seconds")
             print("==>", str(fps), "fps")
 
-            print("Mean inference latency:", str(self.mean_latency.item()), "seconds")
+            print("Mean inference latency:", str(
+                self.mean_latency, "seconds"))
 
     def prefetch(self):
         """prefetches data from inference thread

@@ -52,6 +52,7 @@ class TrajectoryStore():
         }
 
         self.trajectory_counter += 1
+        self.episode_counter += 1
 
         return trajectory
 

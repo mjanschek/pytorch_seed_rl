@@ -96,11 +96,8 @@ class AtariNet(nn.Module):
         baseline = self.baseline(core_output)
 
         if self.training:
-            try:
-                probs = F.softmax(policy_logits, dim=1)
-                action = torch.multinomial(probs, num_samples=1)
-            except RuntimeError:
-                raise RuntimeError(self.conv1.weight, policy_logits)
+            probs = F.softmax(policy_logits, dim=1)
+            action = torch.multinomial(probs, num_samples=1)
         else:
             # Don't sample when testing.
             action = torch.argmax(policy_logits, dim=1)
