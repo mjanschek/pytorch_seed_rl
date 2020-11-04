@@ -27,15 +27,17 @@ from pytorch_seed_rl.environments import EnvSpawner
 from pytorch_seed_rl.nets import AtariNet
 #from pytorch_seed_rl.model import Model
 
-ENV_ID = 'BreakoutNoFrameskip-v4'
-NUM_ENVS = 2
+EXPERIMENT_NAME = 'Pong_torchbeast_settings'
+
+ENV_ID = 'PongNoFrameskip-v4'
+NUM_ENVS = 1
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 100
+TOTAL_EPISODE_STEP = 10000000
 
 NUM_LEARNERS = 1
-NUM_ACTORS = 8
+NUM_ACTORS = 16
 CSV_FILE = './csv/'
 
 USE_LSTM = False
@@ -58,12 +60,14 @@ def run_threads(rank, world_size, env_spawner, model, optimizer):
                                         NUM_ACTORS,
                                         env_spawner,
                                         model,
-                                        optimizer))
+                                        optimizer),
+                                  kwargs={'max_steps': TOTAL_EPISODE_STEP,
+                                          'exp_name': EXPERIMENT_NAME})
 
         #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
         train_rref = learner_rref.remote().loop_training()
         train_rref.to_here(timeout=0)
-        #learner_rref.rpc_sync().report()
+        # learner_rref.rpc_sync().report()
         # block until all rpcs finish, and shutdown the RPC instance
     else:
         rpc.init_rpc(ACTOR_NAME.format(rank),
@@ -79,7 +83,7 @@ def main():
     # model
     model = AtariNet(
         env_spawner.env_info['observation_space'].shape,
-        env_spawner.env_info['action_space'].n, 
+        env_spawner.env_info['action_space'].n,
         USE_LSTM
     )
     model.share_memory()
@@ -87,7 +91,7 @@ def main():
 
     optimizer = RMSprop(
         model.parameters(),
-        lr=0.00048,
+        lr=0.0004,
         momentum=0,
         eps=0.01,
         alpha=0.99
