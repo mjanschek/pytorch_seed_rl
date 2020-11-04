@@ -16,6 +16,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Functions to compute V-trace off-policy actor critic targets.
 For details and theory see:
 "IMPALA: Scalable Distributed Deep-RL with
@@ -90,15 +91,14 @@ def from_logits(behavior_policy_logits,
 
 
 @torch.no_grad()
-def from_importance_weights(
-    log_rhos,
-    discounts,
-    rewards,
-    values,
-    bootstrap_value,
-    clip_rho_threshold=1.0,
-    clip_pg_rho_threshold=1.0,
-):
+def from_importance_weights(log_rhos,
+                            discounts,
+                            rewards,
+                            values,
+                            bootstrap_value,
+                            clip_rho_threshold=1.0,
+                            clip_pg_rho_threshold=1.0,
+                            ):
     """V-trace from log importance weights."""
     with torch.no_grad():
         rhos = torch.exp(log_rhos)
@@ -121,7 +121,7 @@ def from_importance_weights(
             acc = deltas[t] + discounts[t] * cs[t] * acc
             result.append(acc)
         result.reverse()
-        
+
         vs_minus_v_xs = torch.stack(result)
 
         # Add V(x_s) to get v_s.
