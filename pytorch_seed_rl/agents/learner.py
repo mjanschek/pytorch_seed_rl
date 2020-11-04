@@ -490,7 +490,7 @@ class Learner():
             print("==>", str(fps), "fps")
 
             print("Mean inference latency:", str(
-                self.mean_latency, "seconds"))
+                self.mean_latency), "seconds")
 
     def prefetch(self):
         """prefetches data from inference thread
