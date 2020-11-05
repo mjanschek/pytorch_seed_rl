@@ -19,7 +19,7 @@ import os
 
 import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
-from torch.optim import RMSprop
+from torch.optim import RMSprop, Adam
 from torch.nn import DataParallel
 
 from pytorch_seed_rl.agents import Learner
@@ -27,21 +27,49 @@ from pytorch_seed_rl.environments import EnvSpawner
 from pytorch_seed_rl.nets import AtariNet
 #from pytorch_seed_rl.model import Model
 
-EXPERIMENT_NAME = 'Pong_torchbeast_settings'
-
 ENV_ID = 'PongNoFrameskip-v4'
+ENV_SHORT = 'Pong'
 NUM_ENVS = 1
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
 TOTAL_EPISODE_STEP = 10000000
 
+# torchbeast settings
+# SETTINGS_NAME = '_torchbeast_settings'
+# BATCHSIZE_INF = 4
+# BATCHSIZE_TRAIN = 4
+# ROLLOUT = 80
+# LEARNING_RATE = 0.0004
+
+# mf planning settings
+# SETTINGS_NAME = '_mfp_settings'
+# BATCHSIZE_INF = 16
+# BATCHSIZE_TRAIN = 16
+# ROLLOUT = 64
+# LEARNING_RATE = 0.0005
+
+# IMPALA settings
+# SETTINGS_NAME = '_IMPALA_settings'
+# BATCHSIZE_INF = 16
+# BATCHSIZE_TRAIN = 32
+# ROLLOUT = 20
+# LEARNING_RATE = 0.0006
+
+# own settings
+SETTINGS_NAME = '_own'
+BATCHSIZE_INF = 16
+BATCHSIZE_TRAIN = 32
+ROLLOUT = 64
+LEARNING_RATE = 0.0006
+
 NUM_LEARNERS = 1
-NUM_ACTORS = 16
+NUM_ACTORS = 32
 CSV_FILE = './csv/'
 
 USE_LSTM = False
 
+EXPERIMENT_NAME = ENV_SHORT + SETTINGS_NAME
 
 def run_threads(rank, world_size, env_spawner, model, optimizer):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -62,10 +90,16 @@ def run_threads(rank, world_size, env_spawner, model, optimizer):
                                         model,
                                         optimizer),
                                   kwargs={'max_steps': TOTAL_EPISODE_STEP,
-                                          'exp_name': EXPERIMENT_NAME})
+                                          'exp_name': EXPERIMENT_NAME,
+                                          'inference_batchsize': BATCHSIZE_INF,
+                                          'training_batchsize': BATCHSIZE_TRAIN,
+                                          'rollout_length': ROLLOUT,
+                                          })
 
         #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
+        # train_rref = learner_rref.remote().loop_training()
         train_rref = learner_rref.remote().loop_training()
+
         train_rref.to_here(timeout=0)
         # learner_rref.rpc_sync().report()
         # block until all rpcs finish, and shutdown the RPC instance
@@ -89,17 +123,22 @@ def main():
     model.share_memory()
     #model = DataParallel(model)
 
-    optimizer = RMSprop(
+    # optimizer = RMSprop(
+    #     model.parameters(),
+    #     lr=0.0004,
+    #     momentum=0,
+    #     eps=0.01,
+    #     alpha=0.99
+    # )
+
+    optimizer = Adam(
         model.parameters(),
-        lr=0.0004,
-        momentum=0,
-        eps=0.01,
-        alpha=0.99
+        lr=LEARNING_RATE
     )
 
     world_size = NUM_LEARNERS + NUM_ACTORS
 
-    mp.set_start_method('spawn')
+    # mp.set_start_method('spawn')
     mp.spawn(
         run_threads,
         args=(world_size, env_spawner, model, optimizer),
