@@ -21,6 +21,7 @@ import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
 from torch.optim import RMSprop, Adam
 from torch.nn import DataParallel
+import torch.autograd.profiler as profiler
 
 from pytorch_seed_rl.agents import Learner
 from pytorch_seed_rl.environments import EnvSpawner
@@ -29,11 +30,11 @@ from pytorch_seed_rl.nets import AtariNet
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
 ENV_SHORT = 'Breakout'
-NUM_ENVS = 8
+NUM_ENVS = 4
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 10000
+TOTAL_EPISODE_STEP = 10000000
 
 # torchbeast settings
 # SETTINGS_NAME = '_torchbeast_settings'
@@ -58,8 +59,8 @@ TOTAL_EPISODE_STEP = 10000
 
 # own settings
 SETTINGS_NAME = '_own'
-BATCHSIZE_INF = 16
-BATCHSIZE_TRAIN = 8
+BATCHSIZE_INF = 8
+BATCHSIZE_TRAIN = 4
 ROLLOUT = 64
 LEARNING_RATE = 0.0006
 
@@ -75,13 +76,16 @@ EXPERIMENT_NAME = ENV_SHORT + SETTINGS_NAME
 def run_threads(rank, world_size, env_spawner, model, optimizer):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '29500'
+    options = rpc.TensorPipeRpcBackendOptions(num_worker_threads=8)
 
     if rank < NUM_LEARNERS:
         # rank < NUM_LEARNERS are learners
         rpc.init_rpc(LEARNER_NAME.format(rank),
                      backend=rpc.BackendType.PROCESS_GROUP,
                      rank=rank,
-                     world_size=world_size)
+                     world_size=world_size,
+                     #  rpc_backend_options=options
+                     )
 
         learner_rref = rpc.remote(LEARNER_NAME.format(rank),
                                   Learner,
@@ -98,18 +102,17 @@ def run_threads(rank, world_size, env_spawner, model, optimizer):
                                           'rollout_length': ROLLOUT,
                                           })
 
-        #learner_rref = rpc.RRef(LEARNER_NAME.format(rank))
-        # train_rref = learner_rref.remote().loop_training()
-        train_rref = learner_rref.remote().loop_training()
-
-        train_rref.to_here(timeout=0)
-        # learner_rref.rpc_sync().report()
-        # block until all rpcs finish, and shutdown the RPC instance
+        training_rref = learner_rref.remote().loop_training()
+        training_rref.to_here(timeout=0)
     else:
         rpc.init_rpc(ACTOR_NAME.format(rank),
                      backend=rpc.BackendType.PROCESS_GROUP,
                      rank=rank,
-                     world_size=world_size)
+                     world_size=world_size,
+                     #  rpc_backend_options=options
+                     )
+
+    # block until all rpcs finish
     rpc.shutdown()
 
 
@@ -141,14 +144,13 @@ def main():
 
     world_size = NUM_LEARNERS + NUM_ACTORS
 
-    # mp.set_start_method('spawn')
+    mp.set_start_method('spawn')
     mp.spawn(
         run_threads,
         args=(world_size, env_spawner, model, optimizer),
         nprocs=world_size,
         join=True
     )
-    # print("All Processes closed.")
 
 
 if __name__ == '__main__':

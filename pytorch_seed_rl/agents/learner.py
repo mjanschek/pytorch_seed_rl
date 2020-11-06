@@ -21,27 +21,28 @@ Consists of:
     # . 1 reporting/logging object
 """
 import copy
-from queue import Empty
-import pprint
 import gc
+import pprint
 import sys
 import time
 from collections import deque
+from queue import Empty
 
 import numpy as np
 import torch
-from torch import nn
+import torch.autograd.profiler as profiler
 import torch.multiprocessing as mp
+import torch.nn.functional as F
+from torch import nn
 from torch.distributed import rpc
 from torch.distributed.rpc import RRef
 from torch.distributed.rpc.functions import async_execution
 from torch.distributions import Categorical
 from torch.futures import Future
-import torch.nn.functional as F
 
-from ..data_structures.trajectory_store import TrajectoryStore
 from .. import agents
-from ..functional import vtrace, util
+from ..data_structures.trajectory_store import TrajectoryStore
+from ..functional import util, vtrace
 
 
 def _gen_key(actor_name, env_id):
@@ -121,6 +122,8 @@ class Learner():
         self.rank = rank
 
         self.lock = mp.Lock()
+        self.start_training_event = mp.Event()
+        self.training_lock = mp.Lock()
         self.model_lock = mp.Lock()
         self.pending_rpcs = deque(maxlen=self.total_num_envs)
         self.future_answers = [Future() for i in range(self.total_num_envs)]
@@ -137,6 +140,8 @@ class Learner():
         dummy_frame = self.dummy_obs['frame']
         self.inference_memory = torch.zeros_like(dummy_frame, device=self.device) \
             .repeat((1, self.inference_batchsize) + (1,)*(len(dummy_frame.size())-2))
+
+        self.training_batch = {}
 
         # spawn trajectory store
         self.trajectory_store = TrajectoryStore(self.total_num_envs,
@@ -238,7 +243,6 @@ class Learner():
                                   dict()
                                   ))
 
-        # self.inference_memory.fill_(0.)
 
     def _run_inference(self):
         n_actions = self.env_info['action_space'].n
@@ -256,10 +260,16 @@ class Learner():
     def loop_training(self):
         start = time.time()
 
+        print("Waiting for training start...")
+
         while not (self.shutdown or (self.training_epoch > self.max_epoch > 0) or
-                   (self.training_steps > self.max_steps > 0) or
-                   (self.training_time > self.max_time > 0)):
-            self.batched_training()
+                (self.training_steps > self.max_steps > 0) or
+                (self.training_time > self.max_time > 0)):
+
+            self.start_training_event.wait()
+            with self.training_lock:
+                self.batched_training()
+                self.start_training_event.clear()
 
             system_metrics = {
                 "training_time": self.training_time,
@@ -281,46 +291,30 @@ class Learner():
         """
         start = time.time()
 
-        # print("get batch")
-        try:
-            batch = self.batch_queue.get(timeout=10)
-        except Empty:
-            self.training_time += time.time()-start
-            return
+        # batch = self.training_batch
 
-        # placeholder-training
+        # try:
+        #     batch = self.batch_queue.get(timeout=10)
+        # except Empty:
+        #     self.training_time += time.time()-start
+        #     return
+            
+        # for k, v in batch.items():
+        #     batch[k] = v.to(self.device)
 
-        # print(trajectories[0])
-        # batch = self._to_batch(trajectories)
-        for k, v in batch.items():
-            batch[k] = v.to(self.device)
-
-        try:
-            output, _ = self.model(batch)
-        except Exception:
-            raise Exception
-        # print("model tested#1")
-
-        # print("_learn_from_batch")
-        # with self.model_lock:
-        training_metrics = self._learn_from_batch(batch)
-        self.training_time += time.time()-start
-        # print("log training")
-        self.logger.log('training', training_metrics)
-
-        if self.training_epoch % 10 == 0:
-            print(pprint.pformat(training_metrics))
-        # print("training logged")
         # try:
         #     output, _ = self.model(batch)
-        # except RuntimeError:
-        #     raise RuntimeError
-        # print("model tested")
-        # print("training_epoch:", self.training_epoch)
-        ##########
-        # self.shutdown = True
+        # except Exception:
+        #     raise Exception
+        training_metrics = self._learn_from_batch(self.training_batch)
+        
+        # training_metrics = self._learn_from_batch(batch)
+        self.training_time += time.time()-start
+        
+        self.logger.log('training', training_metrics)
 
-        # logger.log_episode(trajectory)
+        if self.training_epoch % 100 == 0:
+            print(pprint.pformat(training_metrics))
 
     def _log_trajectory(self, trajectory):
         gti = trajectory['global_trajectory_id']
@@ -496,6 +490,8 @@ class Learner():
         """prefetches data from inference thread
         """
         while not self.shutdown:
+
+            # with self.training_lock:
             if len(self.trajectory_store.drop_off_queue) >= self.training_batchsize:
                 trajectories = []
                 for _ in range(self.training_batchsize):
@@ -504,10 +500,16 @@ class Learner():
                     trajectories.append(t)
 
                 batch = self._to_batch(trajectories)
-                self.batch_queue.put(batch)
+
+                for k, v in batch.items():
+                    batch[k] = v.to(self.device)
+
+                with self.training_lock:
+                    self.training_batch = batch
+                    
+                self.start_training_event.set()
+
             time.sleep(0.1)
-            # print("batchqueue:", self.batch_queue.qsize())
-            # print("drop_off:", len(self.trajectory_store.drop_off_queue))
 
     def check_in(self, caller_id):
         self.active_envs[caller_id] = True
