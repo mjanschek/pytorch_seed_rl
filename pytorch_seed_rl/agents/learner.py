@@ -106,10 +106,10 @@ class Learner():
         self.model.share_memory()
         self.optimizer = optimizer
 
-        def lr_lambda(epoch):
+        def linear_lambda(epoch):
             return 1 - min(epoch * rollout_length * training_batchsize, max_steps) / max_steps
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-            self.optimizer, lr_lambda)
+            self.optimizer, linear_lambda)
 
         # rpc stuff
         self.active_envs = {}

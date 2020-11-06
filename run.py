@@ -27,13 +27,13 @@ from pytorch_seed_rl.environments import EnvSpawner
 from pytorch_seed_rl.nets import AtariNet
 #from pytorch_seed_rl.model import Model
 
-ENV_ID = 'PongNoFrameskip-v4'
-ENV_SHORT = 'Pong'
-NUM_ENVS = 1
+ENV_ID = 'BreakoutNoFrameskip-v4'
+ENV_SHORT = 'Breakout'
+NUM_ENVS = 8
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 10000000
+TOTAL_EPISODE_STEP = 10000
 
 # torchbeast settings
 # SETTINGS_NAME = '_torchbeast_settings'
@@ -59,12 +59,12 @@ TOTAL_EPISODE_STEP = 10000000
 # own settings
 SETTINGS_NAME = '_own'
 BATCHSIZE_INF = 16
-BATCHSIZE_TRAIN = 32
+BATCHSIZE_TRAIN = 8
 ROLLOUT = 64
 LEARNING_RATE = 0.0006
 
 NUM_LEARNERS = 1
-NUM_ACTORS = 32
+NUM_ACTORS = 4
 CSV_FILE = './csv/'
 
 USE_LSTM = False
@@ -125,7 +125,7 @@ def main():
 
     # optimizer = RMSprop(
     #     model.parameters(),
-    #     lr=0.0004,
+    #     lr=LEARNING_RATE,
     #     momentum=0,
     #     eps=0.01,
     #     alpha=0.99
