@@ -93,12 +93,16 @@ class Learner():
         # set counters
         self.inference_epoch = 0
         self.inference_steps = 0
+        self.inference_time = 0
 
         self.training_epoch = 0
         self.training_steps = 0
         self.training_time = 0
 
-        self.final_time = 0
+        self.fetching_time = 0
+        self.actual_fetching_time = 0
+
+        self.runtime = 0
         self.mean_latency = 0
 
         # torch
@@ -258,7 +262,7 @@ class Learner():
         return actions, policies, values
 
     def loop_training(self):
-        start = time.time()
+        self.t_start = time.time()
 
         print("Waiting for training start...")
 
@@ -272,9 +276,11 @@ class Learner():
                 self.start_training_event.clear()
 
             system_metrics = {
+                "runtime": self._get_runtime(),
+                "fetching_time": self.fetching_time,
+                "inference_steps": self.inference_steps,
                 "training_time": self.training_time,
                 "training_steps": self.training_steps,
-                "inference_steps": self.inference_steps,
                 "drop_off_queuesize": len(self.trajectory_store.drop_off_queue),
                 "batch_queuesize": self.batch_queue.qsize(),
                 "pending_rpcs": len(self.pending_rpcs)
@@ -282,9 +288,11 @@ class Learner():
             self.logger.log('system', system_metrics)
 
         self.shutdown = True
-        self.final_time = time.time()-start
         self._cleanup()
         self.report()
+
+    def _get_runtime(self):
+        return time.time()-self.t_start
 
     def batched_training(self):
         """Trains on sampled, prefetched trajectories.
@@ -416,6 +424,7 @@ class Learner():
         self.scheduler.step()
 
         stats = {
+            "runtime": self._get_runtime(),
             "training_time": self.training_time,
             "training_epoch": self.training_epoch,
             "training_steps": self.training_steps,
@@ -470,18 +479,28 @@ class Learner():
     def report(self):
         """Reports data to CLI
         """
-        if self.training_time > 0:
+        time = self._get_runtime()
+        if time > 0:
             print("\n============== REPORT ==============")
-            fps = self.inference_steps / self.training_time
+            fps = self.inference_steps / time
 
             print("infered", str(self.inference_steps), "times")
-            print("in", str(self.training_time), "seconds")
+            print("in", str(time), "seconds")
             print("==>", str(fps), "fps")
 
-            fps = self.training_steps / self.training_time
+            fps = self.training_steps / time
             print("trained", str(self.training_steps), "times")
-            print("in", str(self.training_time), "seconds")
+            print("in", str(time), "seconds")
             print("==>", str(fps), "fps")
+
+            print("Total inference_time:", str(
+                self.inference_time), "seconds")
+
+            print("Total training_time:", str(
+                self.training_time), "seconds")
+
+            print("Total fetching_time:", str(
+                self.fetching_time), "seconds")
 
             print("Mean inference latency:", str(
                 self.mean_latency), "seconds")
@@ -490,9 +509,10 @@ class Learner():
         """prefetches data from inference thread
         """
         while not self.shutdown:
-
+            start = time.time()
             # with self.training_lock:
             if len(self.trajectory_store.drop_off_queue) >= self.training_batchsize:
+                actual_start = time.time()
                 trajectories = []
                 for _ in range(self.training_batchsize):
                     t = self.trajectory_store.drop_off_queue.popleft()
@@ -508,6 +528,8 @@ class Learner():
                     self.training_batch = batch
                     
                 self.start_training_event.set()
+                self.fetching_time += time.time() - start
+                self.actual_fetching_time += time.time() - actual_start
 
             time.sleep(0.1)
 

@@ -34,7 +34,7 @@ NUM_ENVS = 4
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 10000000
+TOTAL_EPISODE_STEP = 50000
 
 # torchbeast settings
 # SETTINGS_NAME = '_torchbeast_settings'
