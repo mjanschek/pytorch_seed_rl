@@ -71,6 +71,7 @@ USE_LSTM = False
 
 EXPERIMENT_NAME = ENV_SHORT + SETTINGS_NAME
 
+
 def run_threads(rank, world_size, env_spawner, model, optimizer):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '29500'
@@ -78,6 +79,7 @@ def run_threads(rank, world_size, env_spawner, model, optimizer):
     if rank < NUM_LEARNERS:
         # rank < NUM_LEARNERS are learners
         rpc.init_rpc(LEARNER_NAME.format(rank),
+                     backend=rpc.BackendType.PROCESS_GROUP,
                      rank=rank,
                      world_size=world_size)
 
@@ -105,6 +107,7 @@ def run_threads(rank, world_size, env_spawner, model, optimizer):
         # block until all rpcs finish, and shutdown the RPC instance
     else:
         rpc.init_rpc(ACTOR_NAME.format(rank),
+                     backend=rpc.BackendType.PROCESS_GROUP,
                      rank=rank,
                      world_size=world_size)
     rpc.shutdown()

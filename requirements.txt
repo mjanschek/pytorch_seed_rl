@@ -1,4 +1,4 @@
-torch==1.6
+torch>=1.7
 gym[atari]==0.17.2
 tensorboard==2.2.1
 torchsummary==1.5.1
