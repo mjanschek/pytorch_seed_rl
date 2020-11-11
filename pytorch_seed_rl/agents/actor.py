@@ -35,7 +35,6 @@ class Actor():
 
     def __init__(self, rank, infer_rref, env_spawner):
         self.infer_rref = infer_rref
-        self.inference_method = agents.Learner.batched_inference
 
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
@@ -73,13 +72,9 @@ class Actor():
     def _act(self, i):
         """Wrap for async RPC method infer() ran on remote learner.
         """
-        future_action = rpc.rpc_async(self.infer_rref.owner(),
-                                      self.inference_method,
-                                      args=(self.infer_rref,
-                                            self._gen_env_id(i),
-                                            self.current_states[i],
-                                            self.metrics[i]),
-                                      timeout=5)
+        future_action = self.infer_rref.rpc_async().batched_inference(self._gen_env_id(i),
+                                                                      self.current_states[i],
+                                                                      self.metrics[i])
 
         return future_action
 
