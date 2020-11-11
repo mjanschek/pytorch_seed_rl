@@ -20,7 +20,6 @@ import os
 import torch.multiprocessing as mp
 import torch.distributed.rpc as rpc
 from torch.optim import RMSprop, Adam
-from torch.nn import DataParallel
 import torch.autograd.profiler as profiler
 
 from pytorch_seed_rl.agents import Learner
@@ -30,39 +29,39 @@ from pytorch_seed_rl.nets import AtariNet
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
 ENV_SHORT = 'Breakout'
-NUM_ENVS = 4
+NUM_ENVS = 32
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 50000
+TOTAL_EPISODE_STEP = 5000000
 
 # torchbeast settings
-# SETTINGS_NAME = '_torchbeast_settings'
-# BATCHSIZE_INF = 4
-# BATCHSIZE_TRAIN = 4
-# ROLLOUT = 80
-# LEARNING_RATE = 0.0004
+SETTINGS_NAME = '_torchbeast'
+BATCHSIZE_INF = 64
+BATCHSIZE_TRAIN = 4
+ROLLOUT = 80
+LEARNING_RATE = 0.0004
 
 # mf planning settings
-# SETTINGS_NAME = '_mfp_settings'
+# SETTINGS_NAME = '_mfp'
 # BATCHSIZE_INF = 16
 # BATCHSIZE_TRAIN = 16
 # ROLLOUT = 64
 # LEARNING_RATE = 0.0005
 
 # IMPALA settings
-# SETTINGS_NAME = '_IMPALA_settings'
+# SETTINGS_NAME = '_IMPALA'
 # BATCHSIZE_INF = 16
 # BATCHSIZE_TRAIN = 32
 # ROLLOUT = 20
 # LEARNING_RATE = 0.0006
 
 # own settings
-SETTINGS_NAME = '_own'
-BATCHSIZE_INF = 8
-BATCHSIZE_TRAIN = 4
-ROLLOUT = 64
-LEARNING_RATE = 0.0006
+# SETTINGS_NAME = '_own'
+# BATCHSIZE_INF = 8
+# BATCHSIZE_TRAIN = 4
+# ROLLOUT = 64
+# LEARNING_RATE = 0.0006
 
 NUM_LEARNERS = 1
 NUM_ACTORS = 4
@@ -76,7 +75,7 @@ EXPERIMENT_NAME = ENV_SHORT + SETTINGS_NAME
 def run_threads(rank, world_size, env_spawner, model, optimizer):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '29500'
-    options = rpc.TensorPipeRpcBackendOptions(num_worker_threads=8)
+    options = rpc.TensorPipeRpcBackendOptions(num_worker_threads=world_size)
 
     if rank < NUM_LEARNERS:
         # rank < NUM_LEARNERS are learners
@@ -84,7 +83,7 @@ def run_threads(rank, world_size, env_spawner, model, optimizer):
                      backend=rpc.BackendType.PROCESS_GROUP,
                      rank=rank,
                      world_size=world_size,
-                     #  rpc_backend_options=options
+                     #   rpc_backend_options=options
                      )
 
         learner_rref = rpc.remote(LEARNER_NAME.format(rank),
@@ -126,21 +125,19 @@ def main():
         env_spawner.env_info['action_space'].n,
         USE_LSTM
     )
-    model.share_memory()
-    #model = DataParallel(model)
 
-    # optimizer = RMSprop(
-    #     model.parameters(),
-    #     lr=LEARNING_RATE,
-    #     momentum=0,
-    #     eps=0.01,
-    #     alpha=0.99
-    # )
-
-    optimizer = Adam(
+    optimizer = RMSprop(
         model.parameters(),
-        lr=LEARNING_RATE
+        lr=LEARNING_RATE,
+        momentum=0,
+        eps=0.01,
+        alpha=0.99
     )
+
+    # optimizer = Adam(
+    #     model.parameters(),
+    #     lr=LEARNING_RATE
+    # )
 
     world_size = NUM_LEARNERS + NUM_ACTORS
 

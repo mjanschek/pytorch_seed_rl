@@ -39,6 +39,7 @@ from torch.distributed.rpc import RRef
 from torch.distributed.rpc.functions import async_execution
 from torch.distributions import Categorical
 from torch.futures import Future
+from torch.nn.parallel import DistributedDataParallel
 
 from .. import agents
 from ..data_structures.trajectory_store import TrajectoryStore
@@ -104,11 +105,19 @@ class Learner():
 
         self.runtime = 0
         self.mean_latency = 0
+        self.episodes_seen = 0
 
         # torch
         self.device = torch.device('cuda')
         self.model = model.to(self.device)
-        self.model.share_memory()
+        try:
+            self.inference_model = model = copy.deepcopy(self.model)
+            self.inference_model.eval()
+        except Exception as e:
+            print(e)
+        if torch.cuda.device_count() > 1:
+            self.model = DistributedDataParallel(self.model)
+            self.model.share_memory()
         self.optimizer = optimizer
 
         def linear_lambda(epoch):
@@ -180,53 +189,40 @@ class Learner():
         print("%d actors spawned, %d environments each." %
               (num_actors, env_spawner.num_envs))
 
-    @staticmethod
     @async_execution
-    def batched_inference(rref, caller_id, state, metrics=None):
-        self = rref.local_value()
-
+    def batched_inference(self, caller_id, state, metrics=None):
         f_answer = self.future_answers[caller_id].then(
             lambda f_answers: f_answers.wait())
 
         with self.lock:
             self.pending_rpcs.append((caller_id, state, metrics))
-            # print("pending_rpcs:", len(self.pending_rpcs))
             if len(self.pending_rpcs) == self.inference_batchsize:
                 process_rpcs = [self.pending_rpcs.popleft()
                                 for _ in range(self.inference_batchsize)]
+
+                start = time.time()
                 self.process_batch(process_rpcs)
+                self.inference_time += time.time() - start
 
         return f_answer
 
     def process_batch(self, pending_rpcs):
 
-        # for i, rpc_tuple in enumerate(pending_rpcs):
-        #     _, state, _ = rpc_tuple
-        #     frame = state['frame']
-        #     self.inference_memory[0, i].copy_(frame[0, 0])
-
         states = listdict_to_dictlist([s for _, s, _ in pending_rpcs])
         for k, v in states.items():
             states[k] = torch.cat(v, dim=1).to(self.device)
 
-        # placeholder inference
-
-        # pylint: disable=not-callable
-        # actions, policies, values = self._run_inference()
-
-        # with self.model_lock:
-        inference_output, _ = self.model(states)
+        with self.model_lock:
+            inference_output, _ = self.inference_model(states)
 
         states = {k: v.cpu().detach()
                   for k, v in {**states, **inference_output}.items()}
-        ##########
 
         self.inference_steps += self.inference_batchsize
         self.inference_epoch += 1
-        # print("inference_epoch:", self.inference_epoch)
 
-        timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
-
+        # pylint: disable=not-callable
+        timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1) 
         latencies = []
         for i, rpc_tuple in enumerate(pending_rpcs):
             caller_id, _, metrics = rpc_tuple
@@ -247,13 +243,11 @@ class Learner():
                                   dict()
                                   ))
 
-
     def _run_inference(self):
         n_actions = self.env_info['action_space'].n
         prob = 1/n_actions
 
-        # pylint: disable=not-callable
-        policies = torch.tensor(prob).repeat(
+        policies = torch.tensor(prob).repeat(  # pylint: disable=not-callable
             self.inference_batchsize, n_actions).to(self.device)
         values = torch.rand(self.inference_batchsize).to(self.device)
         m = Categorical(policies)
@@ -267,17 +261,24 @@ class Learner():
         print("Waiting for training start...")
 
         while not (self.shutdown or (self.training_epoch > self.max_epoch > 0) or
-                (self.training_steps > self.max_steps > 0) or
-                (self.training_time > self.max_time > 0)):
+                   (self.training_steps > self.max_steps > 0) or
+                   (self.training_time > self.max_time > 0)):
 
             self.start_training_event.wait()
             with self.training_lock:
                 self.batched_training()
+
+                with self.model_lock:
+                    with torch.no_grad():
+                        for m, i in zip(self.model.parameters(), self.inference_model.parameters()):
+                            i.copy_(m)
+
                 self.start_training_event.clear()
 
             system_metrics = {
                 "runtime": self._get_runtime(),
                 "fetching_time": self.fetching_time,
+                "inference_time": self.inference_time,
                 "inference_steps": self.inference_steps,
                 "training_time": self.training_time,
                 "training_steps": self.training_steps,
@@ -298,27 +299,10 @@ class Learner():
         """Trains on sampled, prefetched trajectories.
         """
         start = time.time()
-
-        # batch = self.training_batch
-
-        # try:
-        #     batch = self.batch_queue.get(timeout=10)
-        # except Empty:
-        #     self.training_time += time.time()-start
-        #     return
-            
-        # for k, v in batch.items():
-        #     batch[k] = v.to(self.device)
-
-        # try:
-        #     output, _ = self.model(batch)
-        # except Exception:
-        #     raise Exception
         training_metrics = self._learn_from_batch(self.training_batch)
-        
-        # training_metrics = self._learn_from_batch(batch)
+
         self.training_time += time.time()-start
-        
+
         self.logger.log('training', training_metrics)
 
         if self.training_epoch % 100 == 0:
@@ -328,10 +312,15 @@ class Learner():
         gti = trajectory['global_trajectory_id']
         gei = trajectory['global_episode_id']
 
+        self.episodes_seen += 1
+
         if trajectory['complete'].item() is True:
             i = trajectory['current_length']-1
             states = trajectory['states']
             metrics = trajectory['metrics']
+            self.mean_latency = self.mean_latency + \
+                (metrics['latency'].mean().item() -
+                 self.mean_latency) / self.episodes_seen
 
             episode_data = {
                 'global_episode_id': gei,
@@ -526,7 +515,7 @@ class Learner():
 
                 with self.training_lock:
                     self.training_batch = batch
-                    
+
                 self.start_training_event.set()
                 self.fetching_time += time.time() - start
                 self.actual_fetching_time += time.time() - actual_start
