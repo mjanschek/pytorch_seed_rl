@@ -47,7 +47,7 @@ class RpcCaller():
     def _loop(self):
         raise NotImplementedError
 
-    def batched_rpc(self, *args):
+    def batched_rpc(self, *args, **kwargs):
         """Wrap for batched async RPC ran on remote callee.
         """
-        return self.callee_rref.rpc_async().batched_inference(*args)
+        return self.callee_rref.rpc_async().batched_process(*args, **kwargs)

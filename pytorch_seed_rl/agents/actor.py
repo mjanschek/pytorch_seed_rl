@@ -62,7 +62,9 @@ class Actor(RpcCaller):
         """
         return self.batched_rpc(self._gen_env_id(i),
                                 self.current_states[i],
-                                self.metrics[i])
+                                {'test_data': 'v_data'},
+                                metrics=self.metrics[i],
+                                test={'t': 'v'})
 
     def act(self):
         """Interact with internal environment.
@@ -75,6 +77,9 @@ class Actor(RpcCaller):
 
         for i, rpc_tuple in enumerate(future_actions):
             action, self.shutdown, answer_id, inference_infos = rpc_tuple.wait()
+            if action == None:
+                break
+
 
             latency = time.time() - send_time
 

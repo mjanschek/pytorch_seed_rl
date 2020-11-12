@@ -43,3 +43,11 @@ def compute_policy_gradient_loss(logits, actions, advantages):
     )
     cross_entropy = cross_entropy.view_as(advantages)
     return torch.sum(cross_entropy * advantages.detach())
+
+
+def listdict_to_dictlist(listdict):
+    return {k: [dic[k] for dic in listdict] for k in listdict[0]}
+
+
+def dictlist_to_listdict(dictlist):
+    return [dict(zip(dictlist, t)) for t in zip(*dictlist.values())]

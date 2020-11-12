@@ -23,34 +23,25 @@ Consists of:
 import copy
 import gc
 import pprint
-import sys
 import time
-from collections import deque
-from queue import Empty
 
-import numpy as np
 import torch
-import torch.autograd.profiler as profiler
 import torch.multiprocessing as mp
 import torch.nn.functional as F
 from torch import nn
-from torch.distributed import rpc
-from torch.distributed.rpc import RRef
-from torch.distributed.rpc.functions import async_execution
-from torch.distributions import Categorical
-from torch.futures import Future
 from torch.nn.parallel import DistributedDataParallel
 
 from .. import agents
 from ..data_structures.trajectory_store import TrajectoryStore
 from ..functional import util, vtrace
+from ..functional.util import listdict_to_dictlist
+from .rpc_callee import RpcCallee
+
+# def _gen_key(actor_name, env_id):
+#     return actor_name+"_env{}".format(env_id)
 
 
-def _gen_key(actor_name, env_id):
-    return actor_name+"_env{}".format(env_id)
-
-
-class Learner():
+class Learner(RpcCallee):
     """Agent that runs inference and learning in parallel via multiple threads.
 
     # . Runs inference for observations received from :py:class:`~pytorch_seed_rl.agents.Actor`s.
@@ -74,13 +65,21 @@ class Learner():
                  save_path=".",
                  exp_name=""):
 
+        self.total_num_envs = num_actors*env_spawner.num_envs
+
+        super().__init__(rank,
+                         num_callees=num_learners,
+                         num_callers=num_actors,
+                         caller_class=agents.Actor,
+                         caller_args=[env_spawner],
+                         rpc_batchsize=inference_batchsize,
+                         max_pending_rpcs=self.total_num_envs)
+
         # save arguments as attributes where needed
         self.rollout_length = rollout_length
 
-        self.inference_batchsize = inference_batchsize
+        self.rpc_batchsize = inference_batchsize
         self.training_batchsize = training_batchsize
-
-        self.total_num_envs = num_actors*env_spawner.num_envs
 
         self.max_epoch = max_epoch
         self.max_steps = max_steps
@@ -88,8 +87,6 @@ class Learner():
 
         self.save_path = save_path
         self.exp_name = exp_name
-
-        assert inference_batchsize <= self.total_num_envs
 
         # set counters
         self.inference_epoch = 0
@@ -110,11 +107,10 @@ class Learner():
         # torch
         self.device = torch.device('cuda')
         self.model = model.to(self.device)
-        try:
-            self.inference_model = model = copy.deepcopy(self.model)
-            self.inference_model.eval()
-        except Exception as e:
-            print(e)
+
+        self.inference_model = model = copy.deepcopy(self.model)
+        self.inference_model.eval()
+
         if torch.cuda.device_count() > 1:
             self.model = DistributedDataParallel(self.model)
             self.model.share_memory()
@@ -126,171 +122,113 @@ class Learner():
             self.optimizer, linear_lambda)
 
         # rpc stuff
-        self.active_envs = {}
-        self.shutdown = False
-        #self.rref = RRef(self)
-
-        self.id = rpc.get_worker_info().id
-        self.name = rpc.get_worker_info().name
-        self.rank = rank
-
-        self.lock = mp.Lock()
         self.start_training_event = mp.Event()
         self.training_lock = mp.Lock()
         self.model_lock = mp.Lock()
-        self.pending_rpcs = deque(maxlen=self.total_num_envs)
-        self.future_answers = [Future() for i in range(self.total_num_envs)]
-
-        self.env_info = env_spawner.env_info
 
         # init attributes
-        self.dummy_obs = env_spawner.dummy_obs
-        self.dummy_obs['action'] = torch.zeros(1, 1)
-        self.dummy_obs['baseline'] = torch.zeros(1, 1)
-        self.dummy_obs['policy_logits'] = torch.zeros(
-            1, 1, self.env_info['action_space'].n)
-
-        dummy_frame = self.dummy_obs['frame']
-        self.inference_memory = torch.zeros_like(dummy_frame, device=self.device) \
-            .repeat((1, self.inference_batchsize) + (1,)*(len(dummy_frame.size())-2))
+        self.placeholder_obs = self._build_placeholder_obs(env_spawner)
+        placeholder_frame = self.placeholder_obs['frame']
+        self.inference_memory = torch.zeros_like(placeholder_frame, device=self.device) \
+            .repeat((1, self.rpc_batchsize) + (1,)*(len(placeholder_frame.size())-2))
 
         self.training_batch = {}
 
         # spawn trajectory store
         self.trajectory_store = TrajectoryStore(self.total_num_envs,
-                                                self.dummy_obs,
+                                                self.placeholder_obs,
                                                 self.device,
                                                 max_trajectory_length=rollout_length)
 
         # spawn actors
-        agent_rref = rpc.RRef(self)
-        self._spawn_actors(agent_rref,
-                           num_learners,
-                           num_actors,
-                           env_spawner)
+        self._spawn_callers(agents.Actor,
+                            num_learners,
+                            num_actors,
+                            env_spawner)
 
         self.logger = agents.Logger(
             ['csv'], ['episodes', 'training', 'system'], "/".join([self.save_path, "logs", self.exp_name]))
 
         # start prefetch thread
         self.batch_queue = mp.Queue(maxsize=1)
-        self.prefetch_thread = agent_rref.remote().prefetch()
+        self.prefetch_thread = self.rref.remote().prefetch()
 
-    @staticmethod
-    def _spawn_actors(agent_rref, num_learners, num_actors, env_spawner):
-        for i in range(num_actors):
-            actor_info = rpc.get_worker_info("actor%d" % (i+num_learners))
-            actor_rref = rpc.remote(actor_info,
-                                    agents.Actor,
-                                    args=(i,
-                                          agent_rref,
-                                          env_spawner))
-            actor_rref.remote().loop()
-        print("%d actors spawned, %d environments each." %
-              (num_actors, env_spawner.num_envs))
+    def _loop(self):
+        self.start_training_event.wait()
+        with self.training_lock:
+            self.batched_training()
 
-    @async_execution
-    def batched_inference(self, caller_id, state, metrics=None):
-        f_answer = self.future_answers[caller_id].then(
-            lambda f_answers: f_answers.wait())
+            with self.model_lock:
+                with torch.no_grad():
+                    # copy parameters from training to inference model
+                    for m, i in zip(self.model.parameters(), self.inference_model.parameters()):
+                        i.copy_(m)
 
-        with self.lock:
-            self.pending_rpcs.append((caller_id, state, metrics))
-            if len(self.pending_rpcs) == self.inference_batchsize:
-                process_rpcs = [self.pending_rpcs.popleft()
-                                for _ in range(self.inference_batchsize)]
+            self.start_training_event.clear()
 
-                start = time.time()
-                self.process_batch(process_rpcs)
-                self.inference_time += time.time() - start
+        system_metrics = {
+            "runtime": self._get_runtime(),
+            "fetching_time": self.fetching_time,
+            "inference_time": self.inference_time,
+            "inference_steps": self.inference_steps,
+            "training_time": self.training_time,
+            "training_steps": self.training_steps,
+            "drop_off_queuesize": len(self.trajectory_store.drop_off_queue),
+            "batch_queuesize": self.batch_queue.qsize(),
+            "pending_rpcs": len(self.pending_rpcs)
+        }
+        self.logger.log('system', system_metrics)
 
-        return f_answer
+        self.shutdown = ((self.training_epoch > self.max_epoch > 0) or
+                         (self.training_steps > self.max_steps > 0) or
+                         (self.training_time > self.max_time > 0))
 
-    def process_batch(self, pending_rpcs):
+    def _build_placeholder_obs(self, env_spawner):
+        placeholder_obs = env_spawner.placeholder_obs
+        placeholder_obs['action'] = torch.zeros(1, 1)
+        placeholder_obs['baseline'] = torch.zeros(1, 1)
+        placeholder_obs['policy_logits'] = torch.zeros(
+            1, 1, env_spawner.env_info['action_space'].n)
 
-        states = listdict_to_dictlist([s for _, s, _ in pending_rpcs])
+        return placeholder_obs
+
+    def process_batch(self, caller_ids, *batch, **misc):
+        all_metrics = misc['metrics']
+
+        states = batch[0]
         for k, v in states.items():
             states[k] = torch.cat(v, dim=1).to(self.device)
 
-        with self.model_lock:
-            inference_output, _ = self.inference_model(states)
+        start = time.time()
+        inference_output, _ = self.inference_model(states)
+        self.inference_time += time.time() - start
 
         states = {k: v.cpu().detach()
                   for k, v in {**states, **inference_output}.items()}
 
-        self.inference_steps += self.inference_batchsize
+        self.inference_steps += self.rpc_batchsize
         self.inference_epoch += 1
 
         # pylint: disable=not-callable
-        timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1) 
+        timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
+
+        results = {}
         latencies = []
-        for i, rpc_tuple in enumerate(pending_rpcs):
-            caller_id, _, metrics = rpc_tuple
-            state = {k: v[0, i].view(self.dummy_obs[k].shape)
+        for i, zipped_caller_id_metrics in enumerate(list(zip(caller_ids, all_metrics))):
+            caller_id, metrics = zipped_caller_id_metrics
+
+            state = {k: v[0, i].view(self.placeholder_obs[k].shape)
                      for k, v in states.items()}
 
             latencies.append(metrics['latency'])
             metrics['timestamp'] = timestamp.clone()
             self.trajectory_store.add_to_entry(caller_id, state, metrics)
 
-            action = inference_output['action'][0][i].view(1, 1).cpu().detach()
+            inference_output['action'][0][i].view(1, 1).cpu().detach()
+            results[caller_id] = inference_output['action'][0][i].view(
+                1, 1).cpu().detach()
 
-            f_answers = self.future_answers[caller_id]
-            self.future_answers[caller_id] = Future()
-            f_answers.set_result((action,
-                                  self.shutdown,
-                                  caller_id,
-                                  dict()
-                                  ))
-
-    def _run_inference(self):
-        n_actions = self.env_info['action_space'].n
-        prob = 1/n_actions
-
-        policies = torch.tensor(prob).repeat(  # pylint: disable=not-callable
-            self.inference_batchsize, n_actions).to(self.device)
-        values = torch.rand(self.inference_batchsize).to(self.device)
-        m = Categorical(policies)
-        actions = m.sample().to(self.device)
-
-        return actions, policies, values
-
-    def loop_training(self):
-        self.t_start = time.time()
-
-        print("Waiting for training start...")
-
-        while not (self.shutdown or (self.training_epoch > self.max_epoch > 0) or
-                   (self.training_steps > self.max_steps > 0) or
-                   (self.training_time > self.max_time > 0)):
-
-            self.start_training_event.wait()
-            with self.training_lock:
-                self.batched_training()
-
-                with self.model_lock:
-                    with torch.no_grad():
-                        for m, i in zip(self.model.parameters(), self.inference_model.parameters()):
-                            i.copy_(m)
-
-                self.start_training_event.clear()
-
-            system_metrics = {
-                "runtime": self._get_runtime(),
-                "fetching_time": self.fetching_time,
-                "inference_time": self.inference_time,
-                "inference_steps": self.inference_steps,
-                "training_time": self.training_time,
-                "training_steps": self.training_steps,
-                "drop_off_queuesize": len(self.trajectory_store.drop_off_queue),
-                "batch_queuesize": self.batch_queue.qsize(),
-                "pending_rpcs": len(self.pending_rpcs)
-            }
-            self.logger.log('system', system_metrics)
-
-        self.shutdown = True
-        self._cleanup()
-        self.report()
+        return results
 
     def _get_runtime(self):
         return time.time()-self.t_start
@@ -305,7 +243,7 @@ class Learner():
 
         self.logger.log('training', training_metrics)
 
-        if self.training_epoch % 100 == 0:
+        if self.training_epoch % 1 == 0:
             print(pprint.pformat(training_metrics))
 
     def _log_trajectory(self, trajectory):
@@ -425,25 +363,8 @@ class Learner():
 
         return stats
 
-    def _answer_rpcs(self):
-        while len(self.active_envs) > 0:
-            try:
-                rpc_tuple = self.pending_rpcs.popleft()
-            except IndexError:
-                time.sleep(0.1)
-                continue
-            caller_id, _, _ = rpc_tuple
-            # print(i, caller_id)
-            self.future_answers[caller_id].set_result(
-                (self.dummy_obs['last_action'],
-                 True,
-                 caller_id,
-                 dict()))
-
     def _cleanup(self):
-        # Answer pending rpcs to enable actors to terminate
-        self._answer_rpcs()
-        print("Pendings rpcs answered")
+        super()._cleanup()
 
         # empty self.batch_queue
         while not self.batch_queue.empty():
@@ -465,34 +386,7 @@ class Learner():
         # Run garbage collection to ensure freeing of resources.
         gc.collect()
 
-    def report(self):
-        """Reports data to CLI
-        """
-        time = self._get_runtime()
-        if time > 0:
-            print("\n============== REPORT ==============")
-            fps = self.inference_steps / time
-
-            print("infered", str(self.inference_steps), "times")
-            print("in", str(time), "seconds")
-            print("==>", str(fps), "fps")
-
-            fps = self.training_steps / time
-            print("trained", str(self.training_steps), "times")
-            print("in", str(time), "seconds")
-            print("==>", str(fps), "fps")
-
-            print("Total inference_time:", str(
-                self.inference_time), "seconds")
-
-            print("Total training_time:", str(
-                self.training_time), "seconds")
-
-            print("Total fetching_time:", str(
-                self.fetching_time), "seconds")
-
-            print("Mean inference latency:", str(
-                self.mean_latency), "seconds")
+        self.report()
 
     def prefetch(self):
         """prefetches data from inference thread
@@ -528,10 +422,31 @@ class Learner():
     def check_out(self, caller_id):
         del self.active_envs[caller_id]
 
+    def report(self):
+        """Reports data to CLI
+        """
+        runttime = self._get_runtime()
+        if runttime > 0:
+            print("\n============== REPORT ==============")
+            fps = self.inference_steps / runttime
 
-def listdict_to_dictlist(listdict):
-    return {k: [dic[k] for dic in listdict] for k in listdict[0]}
+            print("infered", str(self.inference_steps), "times")
+            print("in", str(runttime), "seconds")
+            print("==>", str(fps), "fps")
 
+            fps = self.training_steps / runttime
+            print("trained", str(self.training_steps), "times")
+            print("in", str(runttime), "seconds")
+            print("==>", str(fps), "fps")
 
-def dictlist_to_listdict(dictlist):
-    return [dict(zip(dictlist, t)) for t in zip(*dictlist.values())]
+            print("Total inference_time:", str(
+                self.inference_time), "seconds")
+
+            print("Total training_time:", str(
+                self.training_time), "seconds")
+
+            print("Total fetching_time:", str(
+                self.fetching_time), "seconds")
+
+            print("Mean inference latency:", str(
+                self.mean_latency), "seconds")

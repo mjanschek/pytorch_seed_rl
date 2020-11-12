@@ -28,30 +28,28 @@ class EnvSpawner():
     def __init__(self, env_id, num_envs=1):
         self.env_id = env_id
         self.num_envs = num_envs
-        self.env_info, self.dummy_obs = self._generate_env_info()
+        self.env_info, self.placeholder_obs = self._generate_env_info()
 
     def _generate_env_info(self):
         """Spawn environment once to save properties for later reference by learner and model
         """
-        dummy_env = self.spawn()[0]
+        placeholder_env = self.spawn()[0]
 
         env_info = {
             "env_id": self.env_id,
             "num_envs": self.num_envs,
-            "action_space": dummy_env.gym_env.action_space,
-            "observation_space": dummy_env.gym_env.observation_space,
-            "reward_range": dummy_env.gym_env.reward_range,
-            "max_episode_steps": dummy_env.gym_env.spec.max_episode_steps
+            "action_space": placeholder_env.gym_env.action_space,
+            "observation_space": placeholder_env.gym_env.observation_space,
+            "reward_range": placeholder_env.gym_env.reward_range,
+            "max_episode_steps": placeholder_env.gym_env.spec.max_episode_steps
         }
 
-        dummy_obs = dummy_env.initial()
-        #dummy_obs['frame'] = torch.zeros_like(dummy_obs['frame'])
-        #dummy_obs['done'] = torch.zeros_like(dummy_obs['done'])
+        placeholder_obs = placeholder_env.initial()
 
-        dummy_env.close()
-        del dummy_env
+        placeholder_env.close()
+        del placeholder_env
 
-        return env_info, dummy_obs
+        return env_info, placeholder_obs
 
     def spawn(self):
         return [Environment(

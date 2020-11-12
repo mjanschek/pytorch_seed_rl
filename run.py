@@ -29,18 +29,18 @@ from pytorch_seed_rl.nets import AtariNet
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
 ENV_SHORT = 'Breakout'
-NUM_ENVS = 32
+NUM_ENVS = 1
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 5000000
+TOTAL_EPISODE_STEP = 1000
 
 # torchbeast settings
-SETTINGS_NAME = '_torchbeast'
-BATCHSIZE_INF = 64
-BATCHSIZE_TRAIN = 4
-ROLLOUT = 80
-LEARNING_RATE = 0.0004
+# SETTINGS_NAME = '_torchbeast'
+# BATCHSIZE_INF = 64
+# BATCHSIZE_TRAIN = 4
+# ROLLOUT = 80
+# LEARNING_RATE = 0.0004
 
 # mf planning settings
 # SETTINGS_NAME = '_mfp'
@@ -63,8 +63,15 @@ LEARNING_RATE = 0.0004
 # ROLLOUT = 64
 # LEARNING_RATE = 0.0006
 
+# own settings
+SETTINGS_NAME = '_test'
+BATCHSIZE_INF = 2
+BATCHSIZE_TRAIN = 4
+ROLLOUT = 64
+LEARNING_RATE = 0.0006
+
 NUM_LEARNERS = 1
-NUM_ACTORS = 4
+NUM_ACTORS = 2
 CSV_FILE = './csv/'
 
 USE_LSTM = False
@@ -101,7 +108,7 @@ def run_threads(rank, world_size, env_spawner, model, optimizer):
                                           'rollout_length': ROLLOUT,
                                           })
 
-        training_rref = learner_rref.remote().loop_training()
+        training_rref = learner_rref.remote().loop()
         training_rref.to_here(timeout=0)
     else:
         rpc.init_rpc(ACTOR_NAME.format(rank),
