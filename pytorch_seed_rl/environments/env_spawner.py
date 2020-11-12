@@ -18,8 +18,6 @@
 from . import atari_wrappers
 from .environment import Environment
 
-import torch
-
 
 class EnvSpawner():
     """Class that is given to actor threads to spawn local environments.

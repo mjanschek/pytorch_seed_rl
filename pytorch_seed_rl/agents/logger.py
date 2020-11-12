@@ -89,7 +89,7 @@ class Logger():
         for s in self._sources:
             self._write_buffer(s)
 
-    def _write_buffer(self, source):
+    def _write_buffer(self, source: str):
         path = self._filepaths['csv']
         filename = "/".join([path, source]) + ".csv"
 
@@ -159,15 +159,3 @@ class Logger():
                 writer.writeheader()
         except IOError:
             print("I/O error")
-
-
-""" test_row = {
-    "A": 1, "B": 2
-}
-logger = Logger(['csv'], ['episodes'], './logs', csv_chunksize=1)
-print(timeit.timeit(lambda: logger.log('training', test_row), number=1))
-
-
-logger = Logger(['csv'], ['episodes'], './logs', csv_chunksize=1000)
-print(timeit.timeit(lambda: logger.log('training', test_row), number=1000000))
- """

@@ -15,7 +15,6 @@
 
 # taken from https://github.com/facebookresearch/torchbeast/blob/master/torchbeast/monobeast.py
 
-import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
