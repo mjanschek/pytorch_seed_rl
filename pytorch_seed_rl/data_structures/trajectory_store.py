@@ -22,6 +22,8 @@ import copy
 import torch
 from collections import deque
 
+from ..functional.util import listdict_to_dictlist
+
 
 class TrajectoryStore():
     """The store class can:
@@ -32,7 +34,9 @@ class TrajectoryStore():
     def __init__(self, num_keys, zero_obs, device, max_trajectory_length=128):
 
         self.device = device
-        self.zero_obs = zero_obs
+        self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}
+        # self.zero_obs = zero_obs
+
         self.max_trajectory_length = max_trajectory_length
 
         self.trajectory_counter = 0
@@ -43,10 +47,10 @@ class TrajectoryStore():
 
     def _new_trajectory(self):
         trajectory = {
-            "global_trajectory_id": torch.tensor(self.trajectory_counter),
-            "global_episode_id": torch.tensor(self.episode_counter),
-            "complete": torch.tensor(False),
-            "current_length": torch.tensor(0),
+            "global_trajectory_id": torch.tensor(self.trajectory_counter, device=self.device),
+            "global_episode_id": torch.tensor(self.episode_counter, device=self.device),
+            "complete": torch.tensor(False, device=self.device),
+            "current_length": torch.tensor(0, device=self.device),
             "states": self._new_states(),
             "metrics": []
         }
@@ -106,8 +110,5 @@ class TrajectoryStore():
             trajectory["metrics"][k] = torch.cat(v)
 
         t = copy.deepcopy(trajectory)
+
         self.drop_off_queue.append(t)
-
-
-def listdict_to_dictlist(listdict):
-    return {k: [dic[k] for dic in listdict] for k in listdict[0]}
