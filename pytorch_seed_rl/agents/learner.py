@@ -23,6 +23,7 @@ Consists of:
 import copy
 import gc
 import pprint
+# import threading
 import time
 
 import torch
@@ -30,6 +31,7 @@ import torch.multiprocessing as mp
 import torch.nn.functional as F
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel
+from torch.optim.lr_scheduler import LambdaLR
 
 from .. import agents
 from ..data_structures.trajectory_store import TrajectoryStore
@@ -81,6 +83,9 @@ class Learner(RpcCallee):
         self.rpc_batchsize = inference_batchsize
         self.training_batchsize = training_batchsize
 
+        self.training_batch = {}
+        self.states_to_store = {}
+
         self.max_epoch = max_epoch
         self.max_steps = max_steps
         self.max_time = max_time
@@ -105,46 +110,37 @@ class Learner(RpcCallee):
         self.episodes_seen = 0
 
         # torch
-        self.device = torch.device('cuda')
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu")
+
         self.model = model.to(self.device)
 
-        self.inference_model = model = copy.deepcopy(self.model)
-        self.inference_model.eval()
+        self.eval_model = copy.deepcopy(self.model)
+        self.eval_model.eval()
 
         if torch.cuda.device_count() > 1:
             self.model = DistributedDataParallel(self.model)
             self.model.share_memory()
+
         self.optimizer = optimizer
 
         def linear_lambda(epoch):
             return 1 - min(epoch * rollout_length * training_batchsize, max_steps) / max_steps
-        self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-            self.optimizer, linear_lambda)
+        self.scheduler = LambdaLR(self.optimizer, linear_lambda)
 
         # rpc stuff
-        self.start_training_event = mp.Event()
+        self.event_start_training = mp.Event()
+        self.event_start_processing = mp.Event()
         self.training_lock = mp.Lock()
         self.model_lock = mp.Lock()
 
-        # init attributes
         self.placeholder_obs = self._build_placeholder_obs(env_spawner)
-        placeholder_frame = self.placeholder_obs['frame']
-        self.inference_memory = torch.zeros_like(placeholder_frame, device=self.device) \
-            .repeat((1, self.rpc_batchsize) + (1,)*(len(placeholder_frame.size())-2))
-
-        self.training_batch = {}
 
         # spawn trajectory store
         self.trajectory_store = TrajectoryStore(self.total_num_envs,
                                                 self.placeholder_obs,
                                                 self.device,
                                                 max_trajectory_length=rollout_length)
-
-        # spawn actors
-        self._spawn_callers(agents.Actor,
-                            num_learners,
-                            num_actors,
-                            env_spawner)
 
         self.logger = agents.Logger(
             ['csv'], ['episodes', 'training', 'system'], "/".join([self.save_path, "logs", self.exp_name]))
@@ -153,18 +149,19 @@ class Learner(RpcCallee):
         self.batch_queue = mp.Queue(maxsize=1)
         self.prefetch_thread = self.rref.remote().prefetch()
 
+        self._start_callers()
+
     def _loop(self):
-        self.start_training_event.wait()
+        self.event_start_training.wait()
         with self.training_lock:
             self.batched_training()
 
-            with self.model_lock:
-                with torch.no_grad():
-                    # copy parameters from training to inference model
-                    for m, i in zip(self.model.parameters(), self.inference_model.parameters()):
-                        i.copy_(m)
+            with self.model_lock, torch.no_grad():
+                # copy parameters from training to inference model
+                for m, i in zip(self.model.parameters(), self.eval_model.parameters()):
+                    i.copy_(m)
 
-            self.start_training_event.clear()
+            self.event_start_training.clear()
 
         system_metrics = {
             "runtime": self._get_runtime(),
@@ -183,7 +180,8 @@ class Learner(RpcCallee):
                          (self.training_steps > self.max_steps > 0) or
                          (self.training_time > self.max_time > 0))
 
-    def _build_placeholder_obs(self, env_spawner):
+    @staticmethod
+    def _build_placeholder_obs(env_spawner):
         placeholder_obs = env_spawner.placeholder_obs
         placeholder_obs['action'] = torch.zeros(1, 1)
         placeholder_obs['baseline'] = torch.zeros(1, 1)
@@ -193,26 +191,35 @@ class Learner(RpcCallee):
         return placeholder_obs
 
     def process_batch(self, caller_ids, *batch, **misc):
-        all_metrics = misc['metrics']
-
         states = batch[0]
         for k, v in states.items():
             states[k] = torch.cat(v, dim=1).to(self.device)
 
         start = time.time()
-        inference_output, _ = self.inference_model(states)
+
+        inference_output, _ = self.eval_model(states)
         self.inference_time += time.time() - start
 
-        states = {k: v.cpu().detach()
-                  for k, v in {**states, **inference_output}.items()}
+        self.states_to_store = {k: v.detach()
+                                for k, v in {**states, **inference_output}.items()}
 
         self.inference_steps += self.rpc_batchsize
         self.inference_epoch += 1
 
+        results = {c: inference_output['action'][0][i].view(
+            1, 1).cpu().detach() for i, c in enumerate(caller_ids)}
+
+        # add states to store in parallel process
+        self.rref.remote().add_to_store(caller_ids, misc['metrics'])
+
+        return results
+
+    def add_to_store(self, caller_ids, all_metrics):
+        states = self.states_to_store
+
         # pylint: disable=not-callable
         timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
 
-        results = {}
         latencies = []
         for i, zipped_caller_id_metrics in enumerate(list(zip(caller_ids, all_metrics))):
             caller_id, metrics = zipped_caller_id_metrics
@@ -223,12 +230,6 @@ class Learner(RpcCallee):
             latencies.append(metrics['latency'])
             metrics['timestamp'] = timestamp.clone()
             self.trajectory_store.add_to_entry(caller_id, state, metrics)
-
-            inference_output['action'][0][i].view(1, 1).cpu().detach()
-            results[caller_id] = inference_output['action'][0][i].view(
-                1, 1).cpu().detach()
-
-        return results
 
     def _get_runtime(self):
         return time.time()-self.t_start
@@ -243,32 +244,8 @@ class Learner(RpcCallee):
 
         self.logger.log('training', training_metrics)
 
-        if self.training_epoch % 1 == 0:
+        if self.training_epoch % 10 == 0:
             print(pprint.pformat(training_metrics))
-
-    def _log_trajectory(self, trajectory):
-        gti = trajectory['global_trajectory_id']
-        gei = trajectory['global_episode_id']
-
-        self.episodes_seen += 1
-
-        if trajectory['complete'].item() is True:
-            i = trajectory['current_length']-1
-            states = trajectory['states']
-            metrics = trajectory['metrics']
-            self.mean_latency = self.mean_latency + \
-                (metrics['latency'].mean().item() -
-                 self.mean_latency) / self.episodes_seen
-
-            episode_data = {
-                'global_episode_id': gei,
-                'training_steps': self.training_steps,
-                'return': states['episode_return'][i],
-                'length': states['episode_step'][i],
-                'timestamp': metrics['timestamp'][i-1],
-                'mean_latency': metrics['latency'].mean()
-            }
-            self.logger.log('episodes', episode_data)
 
     def _to_batch(self, trajectories):
         states = listdict_to_dictlist([t['states'] for t in trajectories])
@@ -281,17 +258,11 @@ class Learner(RpcCallee):
 
         return states
 
-    def _learn_from_batch(self,
-                          batch,
-                          baseline_cost=0.5,
-                          entropy_cost=0.01,
-                          discounting=0.99,
-                          reward_clipping="abs_one",
-                          grad_norm_clipping=40.):
-        learner_outputs, _ = self.model(batch)
-
-        batch_length = batch['current_length'].sum().item()
-
+    @staticmethod
+    def compute_losses(batch,
+                       learner_outputs,
+                       discounting=0.99,
+                       reward_clipping="abs_one"):
         # Take final value function slice for bootstrapping.
         bootstrap_value = learner_outputs["baseline"][-1]
 
@@ -300,6 +271,7 @@ class Learner(RpcCallee):
         learner_outputs = {key: tensor[:-1]
                            for key, tensor in learner_outputs.items()}
 
+        # clip rewards, if wanted
         rewards = batch["reward"]
         if reward_clipping == "abs_one":
             clipped_rewards = torch.clamp(rewards, -1, 1)
@@ -323,16 +295,28 @@ class Learner(RpcCallee):
             batch["action"],
             vtrace_returns.pg_advantages,
         )
-        # baseline_loss = baseline_cost * util.compute_baseline_loss(
-        #     vtrace_returns.vs - learner_outputs["baseline"]
-        # )
 
         baseline_loss = F.mse_loss(
-            learner_outputs["baseline"], vtrace_returns.vs, reduction='sum')
+            learner_outputs["baseline"],
+            vtrace_returns.vs, reduction='sum')
 
         entropy_loss = util.compute_entropy_loss(
             learner_outputs["policy_logits"]
         )
+
+        return pg_loss, baseline_loss, entropy_loss
+
+    def _learn_from_batch(self,
+                          batch,
+                          baseline_cost=0.5,
+                          entropy_cost=0.01,
+                          grad_norm_clipping=40.):
+
+        batch_length = batch['current_length'].sum().item()
+        learner_outputs, _ = self.model(batch)
+
+        pg_loss, baseline_loss, entropy_loss = self.compute_losses(
+            batch, learner_outputs)
 
         total_loss = pg_loss \
             + baseline_cost * baseline_loss \
@@ -340,9 +324,6 @@ class Learner(RpcCallee):
 
         self.training_steps += batch_length
         self.training_epoch += 1
-
-        # pylint: disable=not-callable
-        timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
 
         self.optimizer.zero_grad()
         total_loss.backward()
@@ -393,7 +374,7 @@ class Learner(RpcCallee):
         """
         while not self.shutdown:
             start = time.time()
-            # with self.training_lock:
+
             if len(self.trajectory_store.drop_off_queue) >= self.training_batchsize:
                 actual_start = time.time()
                 trajectories = []
@@ -404,23 +385,40 @@ class Learner(RpcCallee):
 
                 batch = self._to_batch(trajectories)
 
-                for k, v in batch.items():
-                    batch[k] = v.to(self.device)
-
+                # lock training while replacing training batch
                 with self.training_lock:
                     self.training_batch = batch
+                    self.event_start_training.set()  # start next training
 
-                self.start_training_event.set()
+                # update stats
                 self.fetching_time += time.time() - start
                 self.actual_fetching_time += time.time() - actual_start
 
             time.sleep(0.1)
 
-    def check_in(self, caller_id):
-        self.active_envs[caller_id] = True
+    def _log_trajectory(self, trajectory):
+        gti = trajectory['global_trajectory_id']
+        gei = trajectory['global_episode_id']
 
-    def check_out(self, caller_id):
-        del self.active_envs[caller_id]
+        self.episodes_seen += 1
+
+        if trajectory['complete'].item() is True:
+            i = trajectory['current_length']-1
+            states = trajectory['states']
+            metrics = trajectory['metrics']
+            self.mean_latency = self.mean_latency + \
+                (metrics['latency'].mean().item() -
+                 self.mean_latency) / self.episodes_seen
+
+            episode_data = {
+                'global_episode_id': gei,
+                'training_steps': self.training_steps,
+                'return': states['episode_return'][i],
+                'length': states['episode_step'][i],
+                'timestamp': metrics['timestamp'][i-1],
+                'mean_latency': metrics['latency'].mean()
+            }
+            self.logger.log('episodes', episode_data)
 
     def report(self):
         """Reports data to CLI

@@ -12,20 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Agent that runs inference and learning in parallel via multiple threads.
-
-Consists of:
-    # . n inference threads
-    # . 1 training thread (python main thread)
-    # . l data prefetching threads
-    # . 1 reporting/logging object
+"""RPC object that is able to handle batched rpc calls.
 """
 import gc
 import time
 from abc import abstractmethod
 from collections import deque
 
-import torch
 import torch.multiprocessing as mp
 from torch.distributed import rpc
 from torch.distributed.rpc import RRef
@@ -36,11 +29,7 @@ from ..functional.util import listdict_to_dictlist
 
 
 class RpcCallee():
-    """Agent that runs inference and learning in parallel via multiple threads.
-
-    # . Runs inference for observations received from :py:class:`~pytorch_seed_rl.agents.Actor`s.
-    # . Puts incomplete trajectories to :py:class:`~pytorch_seed_rl.data_structures.trajectory_store`
-    # . Trains global model from trajectories received from a data prefetching thread.
+    """RPC object that is able to handle batched rpc calls.
     """
 
     def __init__(self,
@@ -65,6 +54,7 @@ class RpcCallee():
         self.active_envs = {}
         self.shutdown = False
         self.rref = RRef(self)
+        self.caller_rrefs = []
 
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
@@ -81,11 +71,15 @@ class RpcCallee():
     def _spawn_callers(self, caller_class, num_callees, num_callers, *args):
         for i in range(num_callers):
             callers_info = rpc.get_worker_info("actor%d" % (i+num_callees))
-            callers_rref = rpc.remote(callers_info,
+            self.caller_rrefs.append(rpc.remote(callers_info,
                                       caller_class,
-                                      args=(i, self.rref, *args))
-            callers_rref.remote().loop()
-        print("{} callers spawned".format(num_callers))
+                                      args=(i, self.rref, *args)))
+        print("{} callers spawned, awaiting start.".format(num_callers))
+
+    def _start_callers(self):
+        for c in self.caller_rrefs:
+            c.remote().loop()
+        print("Caller loops started.")
 
     def loop(self):
         self.t_start = time.time()
@@ -141,17 +135,6 @@ class RpcCallee():
     def _get_runtime(self):
         return time.time()-self.t_start
 
-    def _to_batch(self, trajectories):
-        states = listdict_to_dictlist([t['states'] for t in trajectories])
-
-        for k, v in states.items():
-            states[k] = torch.cat(v, dim=1)
-
-        states['current_length'] = torch.stack(
-            [t['current_length'] for t in trajectories])
-
-        return states
-
     def _answer_rpcs(self):
         while len(self.active_envs) > 0:
             try:
@@ -159,7 +142,7 @@ class RpcCallee():
             except IndexError:
                 time.sleep(0.1)
                 continue
-            caller_id, _, _ = rpc_tuple
+            caller_id = rpc_tuple[0]
             # print(i, caller_id)
             self.future_answers[caller_id].set_result((None,
                                                        True,
