@@ -24,9 +24,10 @@ from torch import tensor
 from torch.distributed import rpc
 
 from .. import agents
+from .rpc_caller import RpcCaller
 
 
-class Actor():
+class Actor(RpcCaller):
     """Agent that generates trajectories from at least one environment.
 
     Sends observations (and metrics) off to inference threads on
@@ -34,11 +35,7 @@ class Actor():
     """
 
     def __init__(self, rank, infer_rref, env_spawner):
-        self.infer_rref = infer_rref
-
-        self.id = rpc.get_worker_info().id
-        self.name = rpc.get_worker_info().name
-        self.rank = rank
+        super().__init__(rank, infer_rref)
 
         self.num_envs = env_spawner.num_envs
         self.envs = env_spawner.spawn()
@@ -50,33 +47,22 @@ class Actor():
         self.metrics = [{'latency': tensor(0.).view(1, 1)}
                         for _ in range(self.num_envs)]
 
-        self.shutdown = False
-
-    def loop(self):
+    def _loop(self):
         """Loop acting method.
         """
-        for i in range(self.num_envs):
-            self.infer_rref.rpc_sync().check_in(self._gen_env_id(i))
 
         while not self.shutdown:
             self.act()
 
-        for i in range(self.num_envs):
-            self.infer_rref.rpc_sync().check_out(self._gen_env_id(i))
-
         for env in self.envs:
             env.close()
-
-        return True
 
     def _act(self, i):
         """Wrap for async RPC method infer() ran on remote learner.
         """
-        future_action = self.infer_rref.rpc_async().batched_inference(self._gen_env_id(i),
-                                                                      self.current_states[i],
-                                                                      self.metrics[i])
-
-        return future_action
+        return self.batched_rpc(self._gen_env_id(i),
+                                self.current_states[i],
+                                self.metrics[i])
 
     def act(self):
         """Interact with internal environment.
@@ -104,7 +90,7 @@ class Actor():
                 'latency': tensor(latency).view(1, 1)
             }
 
-        self.steps_infered += self.num_envs
+            self.steps_infered += 1
 
     def _gen_env_id(self, i):
         return self.rank*self.num_envs+i
