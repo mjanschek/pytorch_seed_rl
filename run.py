@@ -29,11 +29,11 @@ from pytorch_seed_rl.nets import AtariNet
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
 ENV_SHORT = 'Breakout'
-NUM_ENVS = 1
+NUM_ENVS = 8
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 1000
+TOTAL_EPISODE_STEP = 50000
 
 # torchbeast settings
 # SETTINGS_NAME = '_torchbeast'
@@ -51,7 +51,7 @@ TOTAL_EPISODE_STEP = 1000
 
 # IMPALA settings
 # SETTINGS_NAME = '_IMPALA'
-# BATCHSIZE_INF = 16
+# BATCHSIZE_INF = 64
 # BATCHSIZE_TRAIN = 32
 # ROLLOUT = 20
 # LEARNING_RATE = 0.0006
@@ -65,13 +65,13 @@ TOTAL_EPISODE_STEP = 1000
 
 # own settings
 SETTINGS_NAME = '_test'
-BATCHSIZE_INF = 2
+BATCHSIZE_INF = 8
 BATCHSIZE_TRAIN = 4
 ROLLOUT = 64
 LEARNING_RATE = 0.0006
 
 NUM_LEARNERS = 1
-NUM_ACTORS = 2
+NUM_ACTORS = 4
 CSV_FILE = './csv/'
 
 USE_LSTM = False

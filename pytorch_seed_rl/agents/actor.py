@@ -50,7 +50,6 @@ class Actor(RpcCaller):
     def _loop(self):
         """Loop acting method.
         """
-
         while not self.shutdown:
             self.act()
 
