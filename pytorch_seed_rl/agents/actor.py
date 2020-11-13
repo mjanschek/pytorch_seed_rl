@@ -23,6 +23,7 @@ from torch import tensor
 
 from .. import agents
 from .rpc_caller import RpcCaller
+from ..environment import EnvSpawner
 
 
 class Actor(RpcCaller):

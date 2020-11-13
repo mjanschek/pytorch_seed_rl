@@ -16,11 +16,10 @@
 
 """The store class can be configured for various data structures.
 """
-
-#from .structure import Trajectory
 import copy
-import torch
 from collections import deque
+
+import torch
 
 from ..functional.util import listdict_to_dictlist
 
