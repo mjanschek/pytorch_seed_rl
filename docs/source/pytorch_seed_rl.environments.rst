@@ -4,6 +4,14 @@ pytorch\_seed\_rl.environments package
 Submodules
 ----------
 
+pytorch\_seed\_rl.environments.atari\_wrappers module
+-----------------------------------------------------
+
+.. automodule:: pytorch_seed_rl.environments.atari_wrappers
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 pytorch\_seed\_rl.environments.env\_spawner module
 --------------------------------------------------
 
@@ -12,10 +20,10 @@ pytorch\_seed\_rl.environments.env\_spawner module
    :undoc-members:
    :show-inheritance:
 
-pytorch\_seed\_rl.environments.wrapper module
----------------------------------------------
+pytorch\_seed\_rl.environments.environment module
+-------------------------------------------------
 
-.. automodule:: pytorch_seed_rl.environments.wrapper
+.. automodule:: pytorch_seed_rl.environments.environment
    :members:
    :undoc-members:
    :show-inheritance:

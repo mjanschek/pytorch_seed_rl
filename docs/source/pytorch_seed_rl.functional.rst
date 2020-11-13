@@ -4,18 +4,18 @@ pytorch\_seed\_rl.functional package
 Submodules
 ----------
 
-pytorch\_seed\_rl.functional.objectives module
-----------------------------------------------
-
-.. automodule:: pytorch_seed_rl.functional.objectives
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 pytorch\_seed\_rl.functional.util module
 ----------------------------------------
 
 .. automodule:: pytorch_seed_rl.functional.util
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+pytorch\_seed\_rl.functional.vtrace module
+------------------------------------------
+
+.. automodule:: pytorch_seed_rl.functional.vtrace
    :members:
    :undoc-members:
    :show-inheritance:
