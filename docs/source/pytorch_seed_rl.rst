@@ -1,6 +1,11 @@
 pytorch\_seed\_rl package
 =========================
 
+.. automodule:: pytorch_seed_rl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Subpackages
 -----------
 
@@ -24,11 +29,3 @@ pytorch\_seed\_rl.util module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: pytorch_seed_rl
-   :members:
-   :undoc-members:
-   :show-inheritance:

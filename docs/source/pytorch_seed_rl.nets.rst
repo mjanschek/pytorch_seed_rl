@@ -1,6 +1,11 @@
 pytorch\_seed\_rl.nets package
 ==============================
 
+.. automodule:: pytorch_seed_rl.nets
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 ----------
 
@@ -12,11 +17,3 @@ pytorch\_seed\_rl.nets.atari\_net module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: pytorch_seed_rl.nets
-   :members:
-   :undoc-members:
-   :show-inheritance:

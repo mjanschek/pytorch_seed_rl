@@ -29,14 +29,7 @@ class Actor(RpcCaller):
     """Agent that generates trajectories from at least one environment.
 
         Sends observations (and metrics) off to inference threads on
-        :py:class:`~pytorch_seed_rl.agents.Learner`, receives actions.
-
-
-        TESTS:
-        :py:meth:`_loop()`
-        :py:method:`_loop()`
-        :py:func:`_loop()`
-        :py:function:`_loop()`
+        :py:class:`~pytorch_seed_rl.agents.learner.Learner`, receives actions.
     """
 
     def __init__(self, rank, infer_rref, env_spawner):
@@ -57,18 +50,18 @@ class Actor(RpcCaller):
                         for _ in range(self.num_envs)]
 
     def _loop(self):
-        """Inner loop function of an :py:class:`~pytorch_seed_rl.agents.Actor`.
-            Called by :py:method:`~pytorch_seed_rl.agents.RpcCaller.loop()`.
+        """Inner loop function of an :py:class:`~pytorch_seed_rl.agents.actor.Actor`.
+            Called by :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop()`.
 
-            Inherited from :py:class:`~pytorch_seed_rl.agents.RpcCaller`.
+            Implements :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller._loop()`.
         """
         self.act()
 
-    def _act(self, i):
+    def _act(self, i: int):
         """Wraps rpc call that is processed batch-wise by a `~pytorch_seed_rl.agents.Learner`.
-            Calls :py:method:`batched_rpc()`.
+            Calls :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.batched_rpc()`.
 
-            Called by :py:method:`~act()`
+            Called by :py:meth:`act()`
         """
         return self.batched_rpc(self._gen_env_id(i),
                                 self.current_states[i],
@@ -112,9 +105,8 @@ class Actor(RpcCaller):
 
     def _cleanup(self):
         """Cleans up after main loop is done.
-            Called by :py:method:`~pytorch_seed_rl.agents.RpcCaller.cleanup()`
 
-            Inherited by :py:class:`~pytorch_seed_rl.agents.RpcCaller`.
+            Implements :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller._cleanup()`.
         """
         for env in self.envs:
             env.close()

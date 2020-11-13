@@ -41,9 +41,9 @@ class RpcCaller():
     def loop(self):
         """Main loop function of an RpcCaller.
 
-        # . Checks in with assigned `~RpcCallee`.
-        # . Loops `~_loop()` until `~self.shutdown` is set True.
-        # . Checks out with assigned `~RpcCallee`.
+        #. Checks in with assigned :py:class:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee`.
+        #. Loops :py:meth:`_loop()` until :py:attr:`self.shutdown` is set True.
+        #. Checks out with assigned :py:class:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee`.
         """
         self.callee_rref.rpc_sync().check_in(self.rank)
 
@@ -55,9 +55,7 @@ class RpcCaller():
 
     @abstractmethod
     def _loop(self):
-        """Inner loop function of an RpcCaller. Called by `~loop()`
-
-        Must be implemented by child class.
+        """Inner loop function of an RpcCaller. Called by :py:meth:`loop()`
         """
         raise NotImplementedError
 
@@ -68,8 +66,6 @@ class RpcCaller():
 
     @abstractmethod
     def _cleanup(self):
-        """Cleans up after main loop is done. Called by `~loop()`
-
-        Must invoke parent classes ~`_cleanup()` method.
+        """Cleans up after main loop is done. Called by :py:meth:`loop()`
         """
         raise NotImplementedError

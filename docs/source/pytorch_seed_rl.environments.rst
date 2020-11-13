@@ -1,6 +1,11 @@
 pytorch\_seed\_rl.environments package
 ======================================
 
+.. automodule:: pytorch_seed_rl.environments
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 ----------
 
@@ -28,11 +33,3 @@ pytorch\_seed\_rl.environments.environment module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: pytorch_seed_rl.environments
-   :members:
-   :undoc-members:
-   :show-inheritance:

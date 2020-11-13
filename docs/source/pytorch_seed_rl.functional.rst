@@ -1,6 +1,11 @@
 pytorch\_seed\_rl.functional package
 ====================================
 
+.. automodule:: pytorch_seed_rl.functional
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 ----------
 
@@ -20,11 +25,3 @@ pytorch\_seed\_rl.functional.vtrace module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: pytorch_seed_rl.functional
-   :members:
-   :undoc-members:
-   :show-inheritance:

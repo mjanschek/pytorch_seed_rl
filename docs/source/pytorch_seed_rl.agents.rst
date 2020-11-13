@@ -1,6 +1,11 @@
 pytorch\_seed\_rl.agents package
 ================================
 
+.. automodule:: pytorch_seed_rl.agents
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 ----------
 
@@ -44,11 +49,3 @@ pytorch\_seed\_rl.agents.rpc\_caller module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: pytorch_seed_rl.agents
-   :members:
-   :undoc-members:
-   :show-inheritance:
