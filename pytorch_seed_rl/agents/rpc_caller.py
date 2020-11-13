@@ -43,9 +43,9 @@ class RpcCaller():
     def loop(self):
         """Main loop function of an RpcCaller.
 
-        # . Checks in with assigned '~RpcCallee'.
-        # . Loops '~_loop()' until '~self.shutdown' is set True.
-        # . Checks out with assigned '~RpcCallee'.
+        # . Checks in with assigned `~RpcCallee`.
+        # . Loops `~_loop()` until `~self.shutdown` is set True.
+        # . Checks out with assigned `~RpcCallee`.
         """
         self.callee_rref.rpc_sync().check_in(self.rank)
 
@@ -57,7 +57,7 @@ class RpcCaller():
 
     @abstractmethod
     def _loop(self):
-        """Inner loop function of an RpcCaller. Called by '~loop()'
+        """Inner loop function of an RpcCaller. Called by `~loop()`
 
         Must be implemented by child class
         """
@@ -69,15 +69,15 @@ class RpcCaller():
         return self.callee_rref.rpc_async().batched_process(*args, **kwargs)
 
     def cleanup(self):
-        """Cleans up after main loop is done. Called by '~cleanup()'
+        """Cleans up after main loop is done. Called by `~cleanup()`
 
-        Calls abstract method '~_cleanup()'
+        Calls abstract method `~_cleanup()`
         """
         self._cleanup()
 
     @abstractmethod
     def _cleanup(self):
-        """Cleans up after main loop is done. Called by '~cleanup()'
+        """Cleans up after main loop is done. Called by `~cleanup()`
 
         Must be implemented by child class.
         """

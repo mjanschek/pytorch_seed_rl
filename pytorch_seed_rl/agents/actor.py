@@ -30,8 +30,10 @@ from .rpc_caller import RpcCaller
 class Actor(RpcCaller):
     """Agent that generates trajectories from at least one environment.
 
-    Sends observations (and metrics) off to inference threads on
-    :py:class:`~pytorch_seed_rl.agents.learner`, receives actions.
+        Sends observations (and metrics) off to inference threads on
+        :py:class:`~pytorch_seed_rl.agents.Learner`, receives actions.
+
+        Child of :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`
     """
 
     def __init__(self, rank, infer_rref, env_spawner):
@@ -48,16 +50,18 @@ class Actor(RpcCaller):
                         for _ in range(self.num_envs)]
 
     def _loop(self):
-        """Loop acting method.
-        """
-        while not self.shutdown:
-            self.act()
+        """Inner loop function of an `~pytorch_seed_rl.agents.Actor`.
+            Called by :py:method:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop()`.
 
-        for env in self.envs:
-            env.close()
+            Inherited from :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`.
+        """
+        self.act()
 
     def _act(self, i):
-        """Wrap for async RPC method infer() ran on remote learner.
+        """Wraps rpc call that is processed batch-wise by a `~pytorch_seed_rl.agents.Learner`.
+            Calls :py:method:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.batched_rpc()`.
+
+            Called by :py:method:`~act()`
         """
         return self.batched_rpc(self._gen_env_id(i),
                                 self.current_states[i],
@@ -79,7 +83,6 @@ class Actor(RpcCaller):
             if action == None:
                 break
 
-
             latency = time.time() - send_time
 
             # sanity check
@@ -96,5 +99,16 @@ class Actor(RpcCaller):
 
             self.steps_infered += 1
 
-    def _gen_env_id(self, i):
+    def _cleanup(self):
+        """Cleans up after main loop is done.
+            Called by :py:method:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.cleanup()`
+
+            Inherited by :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`.
+        """
+        for env in self.envs:
+            env.close()
+
+    def _gen_env_id(self, i: int) -> int:
+        """Returns the global environment id, given the local id.
+        """
         return self.rank*self.num_envs+i
