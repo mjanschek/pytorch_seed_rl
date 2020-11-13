@@ -22,16 +22,28 @@ import time
 from torch import tensor
 
 from .. import agents
+from .rpc_caller import RpcCaller
 
 
-class Actor(agents.RpcCaller):
+class Actor(RpcCaller):
     """Agent that generates trajectories from at least one environment.
 
         Sends observations (and metrics) off to inference threads on
         :py:class:`~pytorch_seed_rl.agents.Learner`, receives actions.
+
+
+        TESTS:
+        :py:meth:`_loop()`
+        :py:method:`_loop()`
+        :py:func:`_loop()`
+        :py:function:`_loop()`
     """
 
     def __init__(self, rank, infer_rref, env_spawner):
+        # ASSERTIONS
+        # infer_rref must be a Learner
+        assert infer_rref._get_type() is agents.Learner
+
         super().__init__(rank, infer_rref)
 
         self.num_envs = env_spawner.num_envs

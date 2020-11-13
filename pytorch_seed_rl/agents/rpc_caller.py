@@ -19,8 +19,6 @@ from abc import abstractmethod
 from torch.distributed import rpc
 from torch.futures import Future
 
-from .. import agents
-
 
 class RpcCaller():
     """RPC object that handles communication with an assigned RPC callee.
@@ -29,8 +27,8 @@ class RpcCaller():
     def __init__(self, rank, callee_rref):
         # ASSERTIONS
         # check for RpcCallee being inherited by callee_rref
-        assert issubclass(callee_rref._get_type(),
-                          agents.RpcCallee)
+        from ..agents.rpc_callee import RpcCallee
+        assert issubclass(callee_rref._get_type(), RpcCallee)
 
         self.callee_rref = callee_rref
 
@@ -53,7 +51,7 @@ class RpcCaller():
             self._loop()
 
         self.callee_rref.rpc_sync().check_out(self.rank)
-        self.cleanup()
+        self._cleanup()
 
     @abstractmethod
     def _loop(self):
@@ -68,17 +66,10 @@ class RpcCaller():
         """
         return self.callee_rref.rpc_async().batched_process(*args, **kwargs)
 
-    def cleanup(self):
-        """Cleans up after main loop is done. Called by `~cleanup()`
-
-        Calls abstract method `~_cleanup()`
-        """
-        self._cleanup()
-
     @abstractmethod
     def _cleanup(self):
-        """Cleans up after main loop is done. Called by `~cleanup()`
+        """Cleans up after main loop is done. Called by `~loop()`
 
-        Must be implemented by child class.
+        Must invoke parent classes ~`_cleanup()` method.
         """
         raise NotImplementedError

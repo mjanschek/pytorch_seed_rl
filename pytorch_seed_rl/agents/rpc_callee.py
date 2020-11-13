@@ -24,8 +24,6 @@ from torch.distributed import rpc
 from torch.distributed.rpc import RRef
 from torch.distributed.rpc.functions import async_execution
 from torch.futures import Future
-
-from .. import agents
 from ..functional.util import listdict_to_dictlist
 
 
@@ -50,8 +48,8 @@ class RpcCallee():
         assert caller_class is not None
 
         # callee_rref is correct subclass
-        assert issubclass(caller_class,
-                          agents.RpcCaller)
+        from ..agents.rpc_caller import RpcCaller
+        assert issubclass(caller_class, RpcCaller)
 
         # rpc_batchsize must smaller or equal maximal pending rpcs
         assert rpc_batchsize <= max_pending_rpcs

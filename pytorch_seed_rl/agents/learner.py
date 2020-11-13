@@ -34,6 +34,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.optim.lr_scheduler import LambdaLR
 
 from .. import agents
+from ..agents.rpc_callee import RpcCallee
 from ..data_structures.trajectory_store import TrajectoryStore
 from ..functional import util, vtrace
 from ..functional.util import listdict_to_dictlist
@@ -42,7 +43,7 @@ from ..functional.util import listdict_to_dictlist
 #     return actor_name+"_env{}".format(env_id)
 
 
-class Learner(agents.RpcCallee):
+class Learner(RpcCallee):
     """Agent that runs inference and learning in parallel via multiple threads.
 
     # . Runs inference for observations received from :py:class:`~pytorch_seed_rl.agents.Actor`s.
