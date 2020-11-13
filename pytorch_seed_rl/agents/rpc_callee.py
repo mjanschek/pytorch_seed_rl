@@ -29,7 +29,10 @@ from ..functional.util import listdict_to_dictlist
 
 
 class RpcCallee():
-    """RPC object that spawns callers and handles batched rpc calls received from spawned callers.
+    """RPC object that spawns callers and handles batched rpc calls received from spawned callers.During initiation:
+
+        * Spawns :py:attr:`num_callers` instances of :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`
+        * Invokes their :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop()` methods.
 
     Parameters
     ----------
@@ -50,7 +53,7 @@ class RpcCallee():
     """
 
     def __init__(self,
-                 rank,
+                 rank:int,
                  num_callees: int = 1,
                  num_callers: int = 1,
                  caller_class: object = None,
@@ -80,7 +83,7 @@ class RpcCallee():
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
         self.rref = RRef(self)
-        self.batching_lock = mp.Lock()
+        self.lock_batching = mp.Lock()
         self.shutdown = False
         self.t_start = 0.
 
@@ -170,7 +173,7 @@ class RpcCallee():
             lambda f_answers: f_answers.wait())
 
         # Use batching lock to prohibit concurrent appending of self.pending_rpcs
-        with self.batching_lock:
+        with self.lock_batching:
             self.pending_rpcs.append((caller_id, *args, kwargs))
 
             # if self.rpc_batchsize is reached, pop pending RPCs and start self._process()

@@ -22,7 +22,7 @@ from torch.futures import Future
 
 from .. import agents
 from .rpc_caller import RpcCaller
-from ..environment import EnvSpawner
+from ..environments import EnvSpawner
 
 
 class Actor(RpcCaller):
@@ -37,8 +37,8 @@ class Actor(RpcCaller):
         Rank given by the RPC group on initiation (as in :py:func:`torch.distributed.rpc.init_rpc`).
     infer_rref: :py:class:`torch.distributed.rpc.RRef`
         RRef referencing a remote :py:class:`~pytorch_seed_rl.agents.learner.Learner`.
-    env_spawner: :py:class:`~pytorch_seed_rl.environment.env_spawner.EnvSpawner`
-        Object that spawns an environment on invoking it's :py:meth:`~pytorch_seed_rl.environment.env_spawner.EnvSpawner.spawn()` method.
+    env_spawner: :py:class:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner`
+        Object that spawns an environment on invoking it's :py:meth:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner.spawn()` method.
     """
 
     def __init__(self,

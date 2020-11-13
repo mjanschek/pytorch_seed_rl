@@ -58,6 +58,7 @@ intersphinx_mapping = {
 
 # Autodoc settings
 autodoc_mock_imports = [
+    "cv2",
     "gym",
     "torch"
 ]
