@@ -39,6 +39,9 @@ from ..tools.trajectory_store import TrajectoryStore
 class Learner(RpcCallee):
     """Agent that runs inference and learning in parallel.
 
+    This learning agent implements the reinforcement learning algorithm IMPALA
+    following the SEED RL implementation by Google Brain.
+
     During initiation:
         * Spawns :py:attr:`num_actors` instances of :py:class:`~pytorch_seed_rl.agents.actor.Actor`.
         * Invokes their :py:meth:`~pytorch_seed_rl.agents.actor.Actor.loop()` methods.
@@ -49,6 +52,37 @@ class Learner(RpcCallee):
         * Runs evaluates observations received from :py:class:`~pytorch_seed_rl.agents.Actor`s and returns actions.
         * Stores incomplete trajectories in :py:class:`~pytorch_seed_rl.tools.trajectory_store`.
         * Trains a global model from trajectories received from a data prefetching thread.
+
+    Parameters
+    ----------
+    rank : `int`
+        Rank given by the RPC group on initiation (as in :py:func:`torch.distributed.rpc.init_rpc`).
+    num_learners : `int`
+        Number of total :py:class:`~pytorch_seed_rl.agents.learner.Learner` objects spawned by mother process.
+    num_actors : `int`
+        Number of total :py:class:`~pytorch_seed_rl.agents.actor.Actor` objects to spawn.
+    env_spawner : :py:class:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner`
+        Object that spawns an environment on invoking it's :py:meth:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner.spawn()` method.
+    model : :py:class:`torch.nn.Module`
+        A torch model that processes frames as returned by an environment spawned by :py:attr:`env_spawner`
+    optimizer : :py:class:`torch.nn.Module`
+        A torch optimizer that links to :py:attr:`model`
+    inference_batchsize : `int`
+        Number of RPCs to gather before running inferenve on their data.
+    training_batchsize : `int`
+        Number of complete trajectories to gather before learning from them as batch.
+    rollout_length : `int`
+        Length of rollout used by the IMPALA algorithm.
+    max_epoch : `int`
+        Maximum number of training epochs to do.
+    max_steps : `int`
+        Maximum number of environment steps to learn from.
+    max_time : `int`
+        Maximum time for training.
+    save_path : `str`
+        The root directory for saving data. Default: the current working directory.
+    exp_name : `str`
+        The title of the experiment to run. This creates a directory with this name in :py:attr:`save_dir`, if it does not exist.
     """
 
     def __init__(self,
