@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RPC object that handles communication with an assigned RPC callee.
+"""
 """
 from abc import abstractmethod
 
@@ -22,6 +22,13 @@ from torch.futures import Future
 
 class RpcCaller():
     """RPC object that handles communication with an assigned RPC callee.
+
+    Parameters
+    ----------
+    rank : `int`
+        Rank given by the RPC group on initiation (as in :py:func:`torch.distributed.rpc.init_rpc`)
+    callee_rref: :py:class:`torch.distributed.rpc.RRef`
+        RRef referencing a remote :py:class:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee`.
     """
 
     def __init__(self, rank, callee_rref):
@@ -30,13 +37,13 @@ class RpcCaller():
         from ..agents.rpc_callee import RpcCallee
         assert issubclass(callee_rref._get_type(), RpcCallee)
 
+        # ATTRIBUTES
         self.callee_rref = callee_rref
+        self.rank = rank
+        self.shutdown = False
 
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
-        self.rank = rank
-
-        self.shutdown = False
 
     def loop(self):
         """Main loop function of an RpcCaller.
@@ -53,16 +60,16 @@ class RpcCaller():
         self.callee_rref.rpc_sync().check_out(self.rank)
         self._cleanup()
 
+    def batched_rpc(self, *args, **kwargs) -> Future:
+        """Wrap for batched async RPC ran on remote callee.
+        """
+        return self.callee_rref.rpc_async().batched_process(*args, **kwargs)
+
     @abstractmethod
     def _loop(self):
         """Inner loop function of an RpcCaller. Called by :py:meth:`loop()`
         """
         raise NotImplementedError
-
-    def batched_rpc(self, *args, **kwargs) -> Future:
-        """Wrap for batched async RPC ran on remote callee.
-        """
-        return self.callee_rref.rpc_async().batched_process(*args, **kwargs)
 
     @abstractmethod
     def _cleanup(self):
