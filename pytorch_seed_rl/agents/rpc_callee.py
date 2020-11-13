@@ -25,6 +25,7 @@ from torch.distributed.rpc import RRef
 from torch.distributed.rpc.functions import async_execution
 from torch.futures import Future
 
+from .. import agents
 from ..functional.util import listdict_to_dictlist
 
 
@@ -41,12 +42,23 @@ class RpcCallee():
                  rpc_batchsize=4,
                  max_pending_rpcs=4):
 
+        # ASSERTIONS
+        assert num_callees > 0
+        assert num_callers > 0
+
+        # caller_class must be given
+        assert caller_class is not None
+
+        # callee_rref is correct subclass
+        assert issubclass(caller_class,
+                          agents.RpcCaller)
+
+        # rpc_batchsize must smaller or equal maximal pending rpcs
+        assert rpc_batchsize <= max_pending_rpcs
+
         # save arguments as attributes where needed
         self.rpc_batchsize = rpc_batchsize
         self.max_pending_rpcs = max_pending_rpcs
-
-        assert caller_class is not None
-        assert rpc_batchsize <= self.max_pending_rpcs
 
         self.t_start = 0.
 
@@ -72,8 +84,8 @@ class RpcCallee():
         for i in range(num_callers):
             callers_info = rpc.get_worker_info("actor%d" % (i+num_callees))
             self.caller_rrefs.append(rpc.remote(callers_info,
-                                      caller_class,
-                                      args=(i, self.rref, *args)))
+                                                caller_class,
+                                                args=(i, self.rref, *args)))
         print("{} callers spawned, awaiting start.".format(num_callers))
 
     def _start_callers(self):
@@ -87,7 +99,6 @@ class RpcCallee():
         print("Waiting for start of main loop...")
         while not (self.shutdown):
             self._loop()
-        print("Loop done")
 
         self.shutdown = True
         self._cleanup()
@@ -149,6 +160,7 @@ class RpcCallee():
                                                        caller_id,
                                                        dict()))
 
+    @abstractmethod
     def _cleanup(self):
         # Answer pending rpcs to enable actors to terminate
         print("Answering pending RPCs")

@@ -37,13 +37,12 @@ from .. import agents
 from ..data_structures.trajectory_store import TrajectoryStore
 from ..functional import util, vtrace
 from ..functional.util import listdict_to_dictlist
-from .rpc_callee import RpcCallee
 
 # def _gen_key(actor_name, env_id):
 #     return actor_name+"_env{}".format(env_id)
 
 
-class Learner(RpcCallee):
+class Learner(agents.RpcCallee):
     """Agent that runs inference and learning in parallel via multiple threads.
 
     # . Runs inference for observations received from :py:class:`~pytorch_seed_rl.agents.Actor`s.

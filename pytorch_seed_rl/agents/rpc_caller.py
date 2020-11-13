@@ -14,10 +14,10 @@
 
 """RPC object that handles communication with an assigned RPC callee.
 """
+from abc import abstractmethod
+
 from torch.distributed import rpc
 from torch.futures import Future
-
-from abc import abstractmethod
 
 from .. import agents
 
@@ -30,7 +30,7 @@ class RpcCaller():
         # ASSERTIONS
         # check for RpcCallee being inherited by callee_rref
         assert issubclass(callee_rref._get_type(),
-                          agents.rpc_callee.RpcCallee)
+                          agents.RpcCallee)
 
         self.callee_rref = callee_rref
 
@@ -59,7 +59,7 @@ class RpcCaller():
     def _loop(self):
         """Inner loop function of an RpcCaller. Called by `~loop()`
 
-        Must be implemented by child class
+        Must be implemented by child class.
         """
         raise NotImplementedError
 

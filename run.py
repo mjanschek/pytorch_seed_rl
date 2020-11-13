@@ -29,11 +29,11 @@ from pytorch_seed_rl.nets import AtariNet
 
 ENV_ID = 'BreakoutNoFrameskip-v4'
 ENV_SHORT = 'Breakout'
-NUM_ENVS = 8
+NUM_ENVS = 1
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 50000
+TOTAL_EPISODE_STEP = 1000
 
 # torchbeast settings
 # SETTINGS_NAME = '_torchbeast'
@@ -65,13 +65,13 @@ TOTAL_EPISODE_STEP = 50000
 
 # own settings
 SETTINGS_NAME = '_test'
-BATCHSIZE_INF = 8
+BATCHSIZE_INF = 1
 BATCHSIZE_TRAIN = 4
 ROLLOUT = 64
 LEARNING_RATE = 0.0006
 
 NUM_LEARNERS = 1
-NUM_ACTORS = 4
+NUM_ACTORS = 1
 CSV_FILE = './csv/'
 
 USE_LSTM = False
@@ -82,7 +82,7 @@ EXPERIMENT_NAME = ENV_SHORT + SETTINGS_NAME
 def run_threads(rank, world_size, env_spawner, model, optimizer):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '29500'
-    options = rpc.TensorPipeRpcBackendOptions(num_worker_threads=world_size)
+    # options = rpc.TensorPipeRpcBackendOptions(num_worker_threads=world_size)
 
     if rank < NUM_LEARNERS:
         # rank < NUM_LEARNERS are learners

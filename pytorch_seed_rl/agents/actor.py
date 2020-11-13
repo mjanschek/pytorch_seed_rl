@@ -17,23 +17,18 @@
 Consists of:
     #. n environments
 """
-import gc
 import time
 
 from torch import tensor
-from torch.distributed import rpc
 
 from .. import agents
-from .rpc_caller import RpcCaller
 
 
-class Actor(RpcCaller):
+class Actor(agents.RpcCaller):
     """Agent that generates trajectories from at least one environment.
 
         Sends observations (and metrics) off to inference threads on
         :py:class:`~pytorch_seed_rl.agents.Learner`, receives actions.
-
-        Child of :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`
     """
 
     def __init__(self, rank, infer_rref, env_spawner):
@@ -50,16 +45,16 @@ class Actor(RpcCaller):
                         for _ in range(self.num_envs)]
 
     def _loop(self):
-        """Inner loop function of an `~pytorch_seed_rl.agents.Actor`.
-            Called by :py:method:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop()`.
+        """Inner loop function of an :py:class:`~pytorch_seed_rl.agents.Actor`.
+            Called by :py:method:`~pytorch_seed_rl.agents.RpcCaller.loop()`.
 
-            Inherited from :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`.
+            Inherited from :py:class:`~pytorch_seed_rl.agents.RpcCaller`.
         """
         self.act()
 
     def _act(self, i):
         """Wraps rpc call that is processed batch-wise by a `~pytorch_seed_rl.agents.Learner`.
-            Calls :py:method:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.batched_rpc()`.
+            Calls :py:method:`batched_rpc()`.
 
             Called by :py:method:`~act()`
         """
@@ -75,35 +70,39 @@ class Actor(RpcCaller):
             #. Send current state (and metrics) off to batching layer for inference.
             #. Receive action.
         """
+        # Send off inference requests for all environments at once, take time
         send_time = time.time()
         future_actions = [self._act(i) for i in range(self.num_envs)]
 
+        # Wait for requested action for each environment.
         for i, rpc_tuple in enumerate(future_actions):
             action, self.shutdown, answer_id, inference_infos = rpc_tuple.wait()
-            if action == None:
+
+            # If requested action is None, Learner was shutdown. Loop can be exited here.
+            if action is None:
                 break
 
-            latency = time.time() - send_time
+            # record metrics
+            # pylint: disable=not-callable
+            self.metrics[i] = {
+                'latency': tensor(time.time() - send_time).view(1, 1)
+            }
 
-            # sanity check
+            # sanity: assert answer is actually for this environment
             assert self._gen_env_id(i) == answer_id
 
+            # perform an environment step and save new state and possible information recorded during inference on the Learner.
             self.current_states[i] = self.envs[i].step(action)
             self.current_states[i] = {
                 **self.current_states[i], **inference_infos}
-
-            # pylint: disable=not-callable
-            self.metrics[i] = {
-                'latency': tensor(latency).view(1, 1)
-            }
 
             self.steps_infered += 1
 
     def _cleanup(self):
         """Cleans up after main loop is done.
-            Called by :py:method:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.cleanup()`
+            Called by :py:method:`~pytorch_seed_rl.agents.RpcCaller.cleanup()`
 
-            Inherited by :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`.
+            Inherited by :py:class:`~pytorch_seed_rl.agents.RpcCaller`.
         """
         for env in self.envs:
             env.close()

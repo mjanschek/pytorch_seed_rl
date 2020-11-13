@@ -15,8 +15,6 @@
 """Object to log all data that it is given.
 """
 
-import timeit
-from collections import deque
 from typing import List, Dict, Union, Any
 import csv
 import os
