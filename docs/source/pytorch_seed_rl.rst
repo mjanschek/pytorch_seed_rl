@@ -13,10 +13,10 @@ Subpackages
    :maxdepth: 4
 
    pytorch_seed_rl.agents
-   pytorch_seed_rl.data_structures
-   pytorch_seed_rl.environments
+   pytorch_seed_rl.environment
    pytorch_seed_rl.functional
    pytorch_seed_rl.nets
+   pytorch_seed_rl.tools
 
 Submodules
 ----------

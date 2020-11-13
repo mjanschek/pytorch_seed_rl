@@ -25,14 +25,6 @@ pytorch\_seed\_rl.agents.learner module
    :undoc-members:
    :show-inheritance:
 
-pytorch\_seed\_rl.agents.logger module
---------------------------------------
-
-.. automodule:: pytorch_seed_rl.agents.logger
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 pytorch\_seed\_rl.agents.rpc\_callee module
 -------------------------------------------
 

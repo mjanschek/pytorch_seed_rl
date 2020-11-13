@@ -130,7 +130,7 @@ class RpcCallee():
         print("Caller loops started.")
 
     def loop(self):
-        """Main loop function of an :py:class:`RpcCallee`.
+        """Main loop method of an :py:class:`RpcCallee`.
 
         #. Loops :py:meth:`_loop()` until :py:attr:`self.shutdown` is set True.
         #. Calls :py:meth:`_cleanup()`

@@ -26,7 +26,7 @@ class RpcCaller():
     Parameters
     ----------
     rank : `int`
-        Rank given by the RPC group on initiation (as in :py:func:`torch.distributed.rpc.init_rpc`)
+        Rank given by the RPC group on initiation (as in :py:func:`torch.distributed.rpc.init_rpc`).
     callee_rref: :py:class:`torch.distributed.rpc.RRef`
         RRef referencing a remote :py:class:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee`.
     """
@@ -68,7 +68,7 @@ class RpcCaller():
 
     @abstractmethod
     def _loop(self):
-        """Inner loop function of an :py:class:`RpcCaller`. Called by :py:meth:`loop()`
+        """Inner loop method of an :py:class:`RpcCaller`. Called by :py:meth:`loop()`
         """
         raise NotImplementedError
 
