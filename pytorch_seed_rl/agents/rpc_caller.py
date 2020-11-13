@@ -31,7 +31,7 @@ class RpcCaller():
         RRef referencing a remote :py:class:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee`.
     """
 
-    def __init__(self, rank, callee_rref):
+    def __init__(self, rank: int, callee_rref: rpc.RRef):
         # ASSERTIONS
         # check for RpcCallee being inherited by callee_rref
         from ..agents.rpc_callee import RpcCallee
@@ -40,17 +40,18 @@ class RpcCaller():
         # ATTRIBUTES
         self.callee_rref = callee_rref
         self.rank = rank
-        self.shutdown = False
 
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
+        self.shutdown = False
 
     def loop(self):
-        """Main loop function of an RpcCaller.
+        """Main loop function of an :py:class:`RpcCaller`.
 
         #. Checks in with assigned :py:class:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee`.
         #. Loops :py:meth:`_loop()` until :py:attr:`self.shutdown` is set True.
         #. Checks out with assigned :py:class:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee`.
+        #. Calls :py:meth:`_cleanup()`
         """
         self.callee_rref.rpc_sync().check_in(self.rank)
 
@@ -67,7 +68,7 @@ class RpcCaller():
 
     @abstractmethod
     def _loop(self):
-        """Inner loop function of an RpcCaller. Called by :py:meth:`loop()`
+        """Inner loop function of an :py:class:`RpcCaller`. Called by :py:meth:`loop()`
         """
         raise NotImplementedError
 
