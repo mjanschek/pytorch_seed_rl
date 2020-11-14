@@ -17,8 +17,10 @@
 import copy
 import gc
 import pprint
-# import threading
 import time
+# import threading
+from collections import deque
+from typing import Dict, List, Tuple, Union
 
 import torch
 import torch.multiprocessing as mp
@@ -45,7 +47,8 @@ class Learner(RpcCallee):
     During initiation:
         * Spawns :py:attr:`num_actors` instances of :py:class:`~pytorch_seed_rl.agents.actor.Actor`.
         * Invokes their :py:meth:`~pytorch_seed_rl.agents.actor.Actor.loop()` methods.
-        * Creates a :py:class:`~pytorch_seed_rl.tools.trajectory_store`.
+        * Creates a :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
+        * Creates a :py:class:`~pytorch_seed_rl.tools.logger.Logger`.
         * Starts a continous prefetching process to prepare batches of complete trajectories for learning.
 
     During runtime:
@@ -125,7 +128,7 @@ class Learner(RpcCallee):
         self.exp_name = exp_name
 
         # storage
-        self.training_batch = {}
+        self.training_batch_queue = deque()
         self.states_to_store = {}
 
         # counters
@@ -167,14 +170,13 @@ class Learner(RpcCallee):
         # rpc stuff
         self.event_start_training = mp.Event()
         self.event_start_processing = mp.Event()
-        self.lock_training = mp.Lock()
+        # self.lock_training = mp.Lock()
         self.lock_model = mp.Lock()
 
-        self.placeholder_obs = self._build_placeholder_obs(env_spawner)
-
         # spawn trajectory store
+        placeholder_eval_obs = self._build_placeholder_eval_obs(env_spawner)
         self.trajectory_store = TrajectoryStore(self.total_num_envs,
-                                                self.placeholder_obs,
+                                                placeholder_eval_obs,
                                                 self.device,
                                                 max_trajectory_length=rollout_length)
 
@@ -189,16 +191,31 @@ class Learner(RpcCallee):
         self._start_callers()
 
     def _loop(self):
-        self.event_start_training.wait()
-        with self.lock_training:
-            self.batched_training()
+        """Inner loop function of a :py:class:`Learner`.
 
-            with self.lock_model, torch.no_grad():
-                # copy parameters from training to inference model
-                for m, i in zip(self.model.parameters(), self.eval_model.parameters()):
-                    i.copy_(m)
+        Called by :py:meth:`loop()`.
 
+        This method first waits on :py:attr:`self.event_start_training`.
+        Then it invokes :py:meth:`_learn_from_batch()` and copies the updated model weights from the learning model to :py:attr:`self.eval_model`.
+        System metrics are passed to :py:attr:`self.logger`.
+        Finally, it checks for reached shutdown criteria, like :py:attr:`self.max_steps` has been reached.
+        """
+        if len(self.training_batch_queue) == 0:
             self.event_start_training.clear()
+            self.event_start_training.wait()
+        # with self.lock_training:
+        start = time.time()
+        training_metrics = self._learn_from_batch(
+            self.training_batch_queue.popleft())
+        self.training_time += time.time()-start
+
+        with self.lock_model, torch.no_grad():
+            # copy parameters from training to inference model
+            for m, i in zip(self.model.parameters(), self.eval_model.parameters()):
+                i.copy_(m)
+
+        if self.training_epoch % 10 == 0:
+            print(pprint.pformat(training_metrics))
 
         system_metrics = {
             "runtime": self._get_runtime(),
@@ -211,162 +228,158 @@ class Learner(RpcCallee):
             "pending_rpcs": len(self.pending_rpcs)
         }
         self.logger.log('system', system_metrics)
+        self.logger.log('training', training_metrics)
 
         self.shutdown = ((self.training_epoch > self.max_epoch > 0) or
                          (self.training_steps > self.max_steps > 0) or
                          (self.training_time > self.max_time > 0))
 
     @staticmethod
-    def _build_placeholder_obs(env_spawner):
-        placeholder_obs = env_spawner.placeholder_obs
-        placeholder_obs['action'] = torch.zeros(1, 1)
-        placeholder_obs['baseline'] = torch.zeros(1, 1)
-        placeholder_obs['policy_logits'] = torch.zeros(
+    def _build_placeholder_eval_obs(env_spawner: EnvSpawner) -> Dict[str, torch.Tensor]:
+        """Returns a dictionary that mimics an evaluated observation with all values being 0.
+        """
+        placeholder_eval_obs = env_spawner.placeholder_obs
+        placeholder_eval_obs['action'] = torch.zeros(1, 1)
+        placeholder_eval_obs['baseline'] = torch.zeros(1, 1)
+        placeholder_eval_obs['policy_logits'] = torch.zeros(
             1, 1, env_spawner.env_info['action_space'].n)
 
-        return placeholder_obs
+        return placeholder_eval_obs
 
-    def process_batch(self, caller_ids, *batch, **misc):
+    def process_batch(self,
+                      caller_ids: List[Union[int, str]],
+                      *batch: List[dict],
+                      **misc: dict) -> Dict[str, torch.Tensor]:
+        """Inner method to process a whole batch at once.
+
+        Called by :py:meth:`_process_batch()`.
+
+        Before returning the result for the given batch, this method:
+        #. Moves its data to the :py:class:`Learner` device (usually GPU)
+        #. Runs inference on this data
+        #. Sends evaluated data to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` using a parallel RPC of :py:meth:`add_to_store()`.
+
+        Parameters
+        ----------
+        caller_ids : `list[int]` or `list[str]`
+            List of unique identifiers for callers.
+        batch : `list[dict]`
+            List of inputs for evaluation.
+        misc : `dict`
+            Dict of keyword arguments. Primarily used for metrics in this application.
+        """
+        # concat tensors for each dict in a batch and move to own device
+        for b in batch:
+            for k, v in b.items():
+                try:
+                    b[k] = torch.cat(v, dim=1).to(self.device)
+                except TypeError:
+                    # expected for input dictionaries that are not tensors
+                    continue
+
         states = batch[0]
-        for k, v in states.items():
-            states[k] = torch.cat(v, dim=1).to(self.device)
 
+        # run inference
         start = time.time()
         with self.lock_model:
             inference_output, _ = self.eval_model(states)
         self.inference_time += time.time() - start
 
-        self.states_to_store = {k: v.detach()
-                                for k, v in {**states, **inference_output}.items()}
-
         self.inference_steps += self.rpc_batchsize
         self.inference_epoch += 1
 
+        # add states to store in parallel process. Don't move data via RPC as it shall stay on cuda.
+        self.states_to_store = {k: v.detach()
+                                for k, v in {**states, **inference_output}.items()}
+        self.rref.remote().add_to_store(caller_ids, misc['metrics'])
+
+        # gather an return results
         results = {c: inference_output['action'][0][i].view(
             1, 1).cpu().detach() for i, c in enumerate(caller_ids)}
 
-        # add states to store in parallel process
-        self.rref.remote().add_to_store(caller_ids, misc['metrics'])
-
         return results
 
-    def add_to_store(self, caller_ids, all_metrics):
-        states = self.states_to_store
+    def add_to_store(self,
+                     caller_ids: List[Union[int, str]],
+                     all_metrics: dict):
+        """Sends states within :py:attr:`self.states_to_store` and metrics to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` according to py:attr:`caller_ids`.
 
+        Parameters
+        ----------
+        caller_ids : `list[int]` or `list[str]`
+            List of unique identifiers for callers.
+        all_metrics : `dict`
+            Recorded metrics of these states (primarily recorded in :py:class:`~pytorch_seed_rl.agents.actor.Actor`.)
+        """
         # pylint: disable=not-callable
         timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
 
+        states = self.states_to_store
+
         latencies = []
+
+        # extract single states and send to trajectory store
         for i, zipped_caller_id_metrics in enumerate(list(zip(caller_ids, all_metrics))):
             caller_id, metrics = zipped_caller_id_metrics
 
-            state = {k: v[0, i].view(self.placeholder_obs[k].shape)
-                     for k, v in states.items()}
+            state = {k: v[0, i] for k, v in states.items()}
 
             latencies.append(metrics['latency'])
             metrics['timestamp'] = timestamp.clone()
+
             self.trajectory_store.add_to_entry(caller_id, state, metrics)
 
-    def _get_runtime(self):
-        return time.time()-self.t_start
-
-    def batched_training(self):
-        """Trains on sampled, prefetched trajectories.
-        """
-        start = time.time()
-        training_metrics = self._learn_from_batch(self.training_batch)
-
-        self.training_time += time.time()-start
-
-        self.logger.log('training', training_metrics)
-
-        if self.training_epoch % 10 == 0:
-            print(pprint.pformat(training_metrics))
-
-    def _to_batch(self, trajectories):
-        states = listdict_to_dictlist([t['states'] for t in trajectories])
-
-        for k, v in states.items():
-            states[k] = torch.cat(v, dim=1)
-
-        states['current_length'] = torch.stack(
-            [t['current_length'] for t in trajectories])
-
-        return states
-
-    @staticmethod
-    def compute_losses(batch,
-                       learner_outputs,
-                       discounting=0.99,
-                       reward_clipping="abs_one"):
-        # Take final value function slice for bootstrapping.
-        bootstrap_value = learner_outputs["baseline"][-1]
-
-        # Move from obs[t] -> action[t] to action[t] -> obs[t].
-        batch = {key: tensor[1:] for key, tensor in batch.items()}
-        learner_outputs = {key: tensor[:-1]
-                           for key, tensor in learner_outputs.items()}
-
-        # clip rewards, if wanted
-        rewards = batch["reward"]
-        if reward_clipping == "abs_one":
-            clipped_rewards = torch.clamp(rewards, -1, 1)
-        elif reward_clipping == "none":
-            clipped_rewards = rewards
-
-        discounts = (~batch["done"]).float() * discounting
-
-        vtrace_returns = vtrace.from_logits(
-            behavior_policy_logits=batch["policy_logits"],
-            target_policy_logits=learner_outputs["policy_logits"],
-            actions=batch["action"],
-            discounts=discounts,
-            rewards=clipped_rewards,
-            values=learner_outputs["baseline"],
-            bootstrap_value=bootstrap_value,
-        )
-
-        pg_loss = util.compute_policy_gradient_loss(
-            learner_outputs["policy_logits"],
-            batch["action"],
-            vtrace_returns.pg_advantages,
-        )
-
-        baseline_loss = F.mse_loss(
-            learner_outputs["baseline"],
-            vtrace_returns.vs, reduction='sum')
-
-        entropy_loss = util.compute_entropy_loss(
-            learner_outputs["policy_logits"]
-        )
-
-        return pg_loss, baseline_loss, entropy_loss
-
     def _learn_from_batch(self,
-                          batch,
-                          baseline_cost=0.5,
-                          entropy_cost=0.01,
-                          grad_norm_clipping=40.):
+                          batch: Dict[str, torch.Tensor],
+                          grad_norm_clipping: float = 40.,
+                          pg_cost: float = 1.,
+                          baseline_cost: float = 0.5,
+                          entropy_cost: float = 0.01):
+        """Runs the learning process and updates the internal model.
 
+        This method:
+        #. Evaluates the given :py:attr:`batch` with the internal learning model.
+        #. Invokes :py:meth:`compute_losses()` to get all components of the loss function.
+        #. Calculates the total loss, using the given cost factors for each component.
+        #. Updates the model by invoking the :py:attr:`self.optimizer`.
+
+        Parameters
+        ----------
+        batch : `dict`
+            Dict of stacked tensors of complete trajectories as returned by :py:meth:`_to_batch()`.
+        grad_norm_clipping : `float`
+            If bigger 0, clips the computed gradient norm to given maximum value.
+        pg_cost : `float`
+            Cost/Multiplier for policy gradient loss.
+        baseline_cost : `float`
+            Cost/Multiplier for baseline loss.
+        entropy_cost : `float`
+            Cost/Multiplier for entropy regularization.
+        """
+        # evaluate training batch
         batch_length = batch['current_length'].sum().item()
         learner_outputs, _ = self.model(batch)
 
-        pg_loss, baseline_loss, entropy_loss = self.compute_losses(
-            batch, learner_outputs)
+        pg_loss, baseline_loss, entropy_loss = self.compute_losses(batch,
+                                                                   learner_outputs)
 
-        total_loss = pg_loss \
+        total_loss = pg_cost * pg_loss \
             + baseline_cost * baseline_loss \
             + entropy_cost * entropy_loss
 
         self.training_steps += batch_length
         self.training_epoch += 1
 
+        # perform update
         self.optimizer.zero_grad()
         total_loss.backward()
-        nn.utils.clip_grad_norm_(self.model.parameters(), grad_norm_clipping)
+        if grad_norm_clipping > 0:
+            nn.utils.clip_grad_norm_(
+                self.model.parameters(), grad_norm_clipping)
         self.optimizer.step()
         self.scheduler.step()
 
+        # return metrics
         stats = {
             "runtime": self._get_runtime(),
             "training_time": self.training_time,
@@ -380,13 +393,84 @@ class Learner(RpcCallee):
 
         return stats
 
+    @staticmethod
+    def compute_losses(batch: Dict[str, torch.Tensor],
+                       learner_outputs: Dict[str, torch.Tensor],
+                       discounting: float = 0.99,
+                       reward_clipping: bool = True
+                       ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Computes and returns the components of IMPALA loss: Policy gradient, baseline and entropy loss.
+
+        Parameters
+        ----------
+        batch : `dict`
+            Dict of stacked tensors of complete trajectories as returned by :py:meth:`_to_batch()`.
+        learner_outputs : `dict`
+            Dict with outputs generated during evaluation within training.
+        discounting : `float`
+            Reward discout factor, must be a positive smaller than 1.
+        reward_clipping : `bool`
+            If set, rewards are clamped between -1 and 1.
+        """
+        assert 0 < discounting <= 1.
+
+        # Take final value function slice for bootstrapping.
+        bootstrap_value = learner_outputs["baseline"][-1]
+
+        # Move from obs[t] -> action[t] to action[t] -> obs[t].
+        batch = {key: tensor[1:] for key, tensor in batch.items()}
+        learner_outputs = {key: tensor[:-1]
+                           for key, tensor in learner_outputs.items()}
+
+        # clip rewards, if wanted
+        if reward_clipping:
+            batch["reward"] = torch.clamp(batch["reward"], -1, 1)
+
+        discounts = (~batch["done"]).float() * discounting
+
+        vtrace_returns = vtrace.from_logits(
+            behavior_policy_logits=batch["policy_logits"],
+            target_policy_logits=learner_outputs["policy_logits"],
+            actions=batch["action"],
+            discounts=discounts,
+            rewards=batch["reward"],
+            values=learner_outputs["baseline"],
+            bootstrap_value=bootstrap_value,
+        )
+
+        pg_loss = util.compute_policy_gradient_loss(
+            learner_outputs["policy_logits"],
+            batch["action"],
+            vtrace_returns.pg_advantages,
+        )
+
+        baseline_loss = F.mse_loss(
+            learner_outputs["baseline"],
+            vtrace_returns.vs, reduction='sum'
+        )
+
+        entropy_loss = util.compute_entropy_loss(
+            learner_outputs["policy_logits"]
+        )
+
+        return pg_loss, baseline_loss, entropy_loss
+
     def _cleanup(self):
+        """Cleans up after main loop is done. Called by :py:meth:`loop()`
+
+        Overwrites and calls :py:meth:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee._cleanup()`.
+        """
         super()._cleanup()
 
+        # write last buffers
         self.logger.write_buffers()
 
         # Remove process to ensure freeing of resources.
-        self.prefetch_thread.to_here()
+        try:
+            self.prefetch_thread.to_here(30)
+        except RuntimeError:
+            # Timeout, prefetch_thread died during shutdown
+            pass
         del self.prefetch_thread
         print("Prefetch rpc joined")
 
@@ -395,14 +479,26 @@ class Learner(RpcCallee):
 
         self.report()
 
-    def prefetch(self):
-        """prefetches data from inference thread
+    def prefetch(self, waiting_time=0.1):
+        """Continuously prefetches complete trajectories dropped by the :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` for training.
+
+        As long as shutdown is not set, this method checks,
+        if :py:attr:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore.drop_off_queue`
+        has at least :py:attr:`self.training_batchsize` elements.
+        If so, these trajectories are popped from this queue, logged, transformed and queued in :py:attr:`self.training_batch_queue`.
+
+        This usually runs as asynchronous process.
+
+        Parameters
+        ----------
+        waiting_time: `float`
+            Time the methods loop sleeps between each iteration.
         """
+
         while not self.shutdown:
-            start = time.time()
 
             if len(self.trajectory_store.drop_off_queue) >= self.training_batchsize:
-                actual_start = time.time()
+                start = time.time()
                 trajectories = []
                 for _ in range(self.training_batchsize):
                     t = self.trajectory_store.drop_off_queue.popleft()
@@ -411,19 +507,22 @@ class Learner(RpcCallee):
 
                 batch = self._to_batch(trajectories)
 
-                # lock training while replacing training batch
-                with self.lock_training:
-                    self.training_batch = batch
-                    self.event_start_training.set()  # start next training
+                self.training_batch_queue.append(batch)
+                self.event_start_training.set()  # next training
 
                 # update stats
                 self.fetching_time += time.time() - start
-                self.actual_fetching_time += time.time() - actual_start
 
-            time.sleep(0.1)
+            time.sleep(waiting_time)
 
-    def _log_trajectory(self, trajectory):
-        gti = trajectory['global_trajectory_id']
+    def _log_trajectory(self, trajectory: dict):
+        """Extracts and logs episode data from a completed trajectory.
+
+        Parameters
+        ----------
+        trajectory: `dict`
+            Trajectory dropped by :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
+        """
         gei = trajectory['global_episode_id']
 
         self.episodes_seen += 1
@@ -445,6 +544,24 @@ class Learner(RpcCallee):
                 'mean_latency': metrics['latency'].mean()
             }
             self.logger.log('episodes', episode_data)
+
+    def _to_batch(self, trajectories: List[dict]):
+        """Extracts states from a list of trajectories, returns them as batch
+
+        Parameters
+        ----------
+        trajectories: `list`
+            List of trajectories dropped by :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
+        """
+        states = listdict_to_dictlist([t['states'] for t in trajectories])
+
+        for k, v in states.items():
+            states[k] = torch.cat(v, dim=1)
+
+        states['current_length'] = torch.stack(
+            [t['current_length'] for t in trajectories])
+
+        return states
 
     def report(self):
         """Reports data to CLI

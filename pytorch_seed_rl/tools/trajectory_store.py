@@ -86,6 +86,11 @@ class TrajectoryStore():
             value.fill_(0)
 
     def add_to_entry(self, i, state, metrics=None):
+        assert all(k in self.zero_obs.keys() for k in state.keys())
+
+        state = {k: v.view(self.zero_obs[k].shape)
+                 for k, v in state.items()}
+
         trajectory = self.internal_store[i]
         current_length = trajectory['current_length'].item()
         states = trajectory['states']

@@ -232,7 +232,9 @@ class RpcCallee():
 
     @abstractmethod
     def _loop(self):
-        """Inner loop function of an :py:class:`RpcCallee`. Called by :py:meth:`loop()`.
+        """Inner loop function of an :py:class:`RpcCallee`.
+        
+        Called by :py:meth:`loop()`.
         """
         raise NotImplementedError
 
