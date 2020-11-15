@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """
 """
 import gc
@@ -31,8 +30,8 @@ from ..functional.util import listdict_to_dictlist
 class RpcCallee():
     """RPC object that spawns callers and handles batched rpc calls received from spawned callers.During initiation:
 
-        * Spawns :py:attr:`num_callers` instances of :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`
-        * Invokes their :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop()` methods.
+    * Spawns :py:attr:`num_callers` instances of :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`
+    * Invokes their :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop()` methods.
 
     Parameters
     ----------
@@ -53,7 +52,7 @@ class RpcCallee():
     """
 
     def __init__(self,
-                 rank:int,
+                 rank: int,
                  num_callees: int = 1,
                  num_callers: int = 1,
                  caller_class: object = None,
@@ -233,7 +232,7 @@ class RpcCallee():
     @abstractmethod
     def _loop(self):
         """Inner loop function of an :py:class:`RpcCallee`.
-        
+
         Called by :py:meth:`loop()`.
         """
         raise NotImplementedError

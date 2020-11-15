@@ -51,9 +51,10 @@ extensions = [
 
 # Intersphinx Mapping
 intersphinx_mapping = {
-    'python': ('https://docs.python.org/3/', None),
+    # 'gym': ('https://gym.openai.com/docs/', None),
     'numpy': ('https://docs.scipy.org/doc/numpy', None),
-    'torch': ('https://pytorch.org/docs/master/', None)
+    'python': ('https://docs.python.org/3/', None),
+    'torch': ('https://pytorch.org/docs/master/', None),
 }
 
 # Autodoc settings
@@ -65,7 +66,7 @@ autodoc_mock_imports = [
 autodoc_default_options = {
     'member-order': 'bysource',
     'members': True,
-    'private-members': True,
+    'private-members': False,
     'show-inheritance': True,
     'undoc-members': False
 }
@@ -93,6 +94,12 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # a list of builtin themes.
 #
 html_theme = 'sphinx_rtd_theme'
+
+# html_theme_options = {
+#     # Toc options
+#     'collapse_navigation': False,
+#     'navigation_depth': 4,
+# }
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

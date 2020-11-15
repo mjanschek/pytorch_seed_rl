@@ -1,4 +1,4 @@
-"""The agents module holds all classes that can interact within the created RPC group.
+"""The :py:mod:`agents` module holds all classes that can interact within the created RPC group.
 
 Exposed classes:
     * :py:class:`~actor.Actor` (Child of :py:class:`~rpc_caller.RpcCaller`)

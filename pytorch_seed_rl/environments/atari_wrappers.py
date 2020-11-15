@@ -25,6 +25,8 @@
 # and slightly modified (again)
 
 # pylint: disable=missing-module-docstring, missing-class-docstring, missing-function-docstring, too-many-arguments, arguments-differ
+"""
+"""
 
 from collections import deque
 
@@ -32,6 +34,7 @@ import cv2
 import gym
 import numpy as np
 from gym import spaces
+import torch
 
 cv2.ocl.setUseOpenCL(False)
 
@@ -39,13 +42,13 @@ cv2.ocl.setUseOpenCL(False)
 class AutoResetWrapper(gym.Wrapper):
     """A wrapper that automatically resets the environment in case of termination.
 
-    Arguments
-    ---------
-        env: :py:obj:`gym.Env`
-            An environment that will be wrapped.
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
     """
 
-    def __init__(self, env):
+    def __init__(self, env: gym.Env):
         super().__init__(env)
         self._terminated = False
 
@@ -63,10 +66,20 @@ class AutoResetWrapper(gym.Wrapper):
 
 
 class NoopResetEnv(gym.Wrapper):
-    def __init__(self, env, noop_max=30):
-        """Sample initial states by taking random number of no-ops on reset.
-        No-op is assumed to be action 0.
-        """
+    """Sample initial states by taking random number of no-ops on reset.
+    No-op is assumed to be action 0.
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    noop_max: `int`
+        The maximum number of no-ops on reset.
+    """
+
+    def __init__(self,
+                 env: gym.Env,
+                 noop_max: int = 30):
         gym.Wrapper.__init__(self, env)
         self.noop_max = noop_max
         self.override_num_noops = None
@@ -94,8 +107,15 @@ class NoopResetEnv(gym.Wrapper):
 
 
 class FireResetEnv(gym.Wrapper):
-    def __init__(self, env):
-        """Take action on reset for environments that are fixed until firing."""
+    """Take action on reset for environments that are fixed until firing.
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    """
+
+    def __init__(self, env: gym.Env):
         gym.Wrapper.__init__(self, env)
         assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
         assert len(env.unwrapped.get_action_meanings()) >= 3
@@ -115,10 +135,16 @@ class FireResetEnv(gym.Wrapper):
 
 
 class EpisodicLifeEnv(gym.Wrapper):
-    def __init__(self, env):
-        """Make end-of-life == end-of-episode, but only reset on true game over.
-        Done by DeepMind for the DQN and co. since it helps value estimation.
-        """
+    """Make end-of-life == end-of-episode, but only reset on true game over.
+    Done by DeepMind for the DQN and co. since it helps value estimation.
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    """
+
+    def __init__(self, env: gym.Env):
         gym.Wrapper.__init__(self, env)
         self.lives = 0
         self.was_real_done = True
@@ -152,8 +178,19 @@ class EpisodicLifeEnv(gym.Wrapper):
 
 
 class MaxAndSkipEnv(gym.Wrapper):
-    def __init__(self, env, skip=4):
-        """Return only every `skip`-th frame"""
+    """Return only every `skip`-th frame
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    skip: `int`
+        The number of the returned frame. If `skip` = 4 (default), only every 4th frame will be returned.
+    """
+
+    def __init__(self,
+                 env: gym.Env,
+                 skip: int = 4):
         gym.Wrapper.__init__(self, env)
         # most recent raw observations (for max pooling across time steps)
         self._obs_buffer = np.zeros(
@@ -184,7 +221,15 @@ class MaxAndSkipEnv(gym.Wrapper):
 
 
 class ClipRewardEnv(gym.RewardWrapper):
-    def __init__(self, env):
+    """Clips rewards.
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    """
+
+    def __init__(self, env: gym.Env):
         gym.RewardWrapper.__init__(self, env)
 
     def reward(self, reward):
@@ -193,13 +238,32 @@ class ClipRewardEnv(gym.RewardWrapper):
 
 
 class WarpFrame(gym.ObservationWrapper):
-    def __init__(self, env, width=84, height=84, grayscale=True, dict_space_key=None):
-        """
-        Warp frames to 84x84 as done in the Nature paper and later work.
-        If the environment uses dictionary observations, `dict_space_key`
-        can be specified which indicates which
-        observation should be warped.
-        """
+    """ Warp frames to `height`x`width` as done in the Nature paper and later work.
+    If the environment uses dictionary observations, `dict_space_key`
+    can be specified which indicates which
+    observation should be warped.
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    width: `int`
+        Target width of warped frames.
+    height: `int`
+        Target height of warped frames.
+    grayscale: `bool`
+        Set True,. if warped frames shall be greyscale.
+    dict_space_key: `str`
+        Key of targeted space of environments observation space dictionary.
+
+    """
+
+    def __init__(self,
+                 env: gym.Env,
+                 width: int = 84,
+                 height: int = 84,
+                 grayscale: bool = True,
+                 dict_space_key: str = None):
         super().__init__(env)
         self._width = width
         self._height = height
@@ -248,13 +312,24 @@ class WarpFrame(gym.ObservationWrapper):
 
 
 class FrameStack(gym.Wrapper):
-    def __init__(self, env, k):
-        """Stack k last frames.
-        Returns lazy array, which is much more memory efficient.
-        See Also
-        --------
-        baselines.common.atari_wrappers.LazyFrames
-        """
+    """Stack k last frames.
+    Returns lazy array, which is much more memory efficient.
+
+    See Also
+    --------
+    :py:class:`LazyFrames`
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    k: `int`
+        Number of last frames to stack.
+    """
+
+    def __init__(self,
+                 env: gym.Env,
+                 k: int):
         gym.Wrapper.__init__(self, env)
         self.k = k
         self.frames = deque([], maxlen=k)
@@ -279,7 +354,15 @@ class FrameStack(gym.Wrapper):
 
 
 class ScaledFloatFrame(gym.ObservationWrapper):
-    def __init__(self, env):
+    """Normalizes the frame.
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    """
+
+    def __init__(self, env: gym.Env):
         gym.ObservationWrapper.__init__(self, env)
         self.observation_space = gym.spaces.Box(
             low=0, high=1, shape=env.observation_space.shape, dtype=np.float32)
@@ -290,13 +373,21 @@ class ScaledFloatFrame(gym.ObservationWrapper):
         return np.array(observation).astype(np.float32) / 255.0
 
 
-class LazyFrames(object):
+class LazyFrames():
+    """This object ensures that common frames between the observations are only stored once.
+
+    It exists purely to optimize memory usage which can be huge for DQN's 1M frames replay
+    buffers.
+    This object should only be converted to numpy array before being passed to the model.
+    You'd not believe how complex the previous solution was.
+
+    Parameters
+    ----------
+    frames: `list`
+        A list of frames that shall be converted.
+    """
+
     def __init__(self, frames):
-        """This object ensures that common frames between the observations are only stored once.
-        It exists purely to optimize memory usage which can be huge for DQN's 1M frames replay
-        buffers.
-        This object should only be converted to numpy array before being passed to the model.
-        You'd not believe how complex the previous solution was."""
         self._frames = frames
         self._out = None
 
@@ -328,19 +419,136 @@ class LazyFrames(object):
         return self._force()[..., i]
 
 
-def make_atari(env_id, max_episode_steps=None):
+class ImageToPyTorch(gym.ObservationWrapper):
+    """Changes image shape to channels x weight x height
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    """
+
+    def __init__(self, env: gym.Env):
+        super(ImageToPyTorch, self).__init__(env)
+        old_shape = self.observation_space.shape
+        self.observation_space = gym.spaces.Box(
+            low=0,
+            high=255,
+            shape=(old_shape[-1], old_shape[0], old_shape[1]),
+            dtype=np.uint8,
+        )
+
+    def observation(self, observation):
+        return self._format_frame(
+            np.transpose(observation, axes=(2, 0, 1)))
+
+    @staticmethod
+    def _format_frame(frame):
+        frame = torch.from_numpy(frame)
+        return frame.view((1, 1) + frame.shape)  # (...) -> (T,B,...).
+
+
+class DictObservations(gym.Wrapper):
+    """Provides observations as `dict` with additional metrics.
+
+    Adds :py:meth:`initial()` method, which returns the initial observation.
+
+    Parameters
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    """
+
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+        self.episode_return = None
+        self.episode_step = None
+
+    def initial(self) -> dict:
+        """Returns an initial observation.
+        """
+        initial_reward = torch.zeros(1, 1)
+        # This supports only single-tensor actions ATM.
+        initial_last_action = torch.zeros(1, 1, dtype=torch.int64)
+        initial_done = torch.ones(1, 1, dtype=torch.bool)
+        initial_frame = self.reset()
+        return dict(frame=initial_frame,
+                    reward=initial_reward,
+                    done=initial_done,
+                    episode_return=self.episode_return,
+                    episode_step=self.episode_step,
+                    last_action=initial_last_action,
+                    )
+
+    def step(self, action):
+        frame, reward, done, unused_info = self.env.step(action.item())
+        self.episode_step += 1
+        self.episode_return += reward
+        episode_step = self.episode_step
+        episode_return = self.episode_return
+        if done:
+            frame = self.reset()
+
+        # pylint: disable=not-callable
+        reward = torch.tensor(reward).view(1, 1)
+        done = torch.tensor(done).view(1, 1)
+
+        return dict(frame=frame,
+                    reward=reward,
+                    done=done,
+                    episode_return=episode_return,
+                    episode_step=episode_step,
+                    last_action=action,
+                    )
+
+    def reset(self):
+        self.episode_return = torch.zeros(1, 1)
+        self.episode_step = torch.zeros(1, 1, dtype=torch.int32)
+        return self.env.reset()
+
+    def close(self):
+        self.env.close()
+
+
+def make_atari(env_id: str) -> gym.Env:
+    """Creates the :py:class:`~gym.Env` registered with `gym <https://gym.openai.com/docs/>`__.
+
+    Arguments
+    ---------
+    env_id: `str`
+        The environments identifier as registered with :py:mod:`gym`.
+    """
     env = gym.make(env_id)
     assert 'NoFrameskip' in env.spec.id
     env = NoopResetEnv(env, noop_max=30)
     env = MaxAndSkipEnv(env, skip=4)
 
-    assert max_episode_steps is None
-
     return env
 
 
-def wrap_deepmind(env, episode_life=True, clip_rewards=True, frame_stack=False, scale=False):
+def wrap_deepmind(env,
+                  episode_life: bool = True,
+                  clip_rewards: bool = True,
+                  frame_stack: bool = False,
+                  scale: bool = False) -> gym.Env:
     """Configure environment for DeepMind-style Atari.
+
+    Always applies:
+        * :py:class:`WarpFrame`
+        * :py:class:`FireResetEnv`, if :py:attr:`env` contains an action with meaning 'FIRE'
+
+    Arguments
+    ---------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
+    episode_life: `bool`
+        Applies :py:class:`EpisodicLifeEnv`, if True.
+    clip_rewards: `bool`
+        Applies :py:class:`ClipRewardEnv`, if True.
+    frame_stack: `bool`
+        Applies :py:class:`FrameStack` (`k` = 4), if True.
+    scale: `bool`
+        Applies :py:class:`ScaledFloatFrame`, if True.
     """
     if episode_life:
         env = EpisodicLifeEnv(env)
@@ -356,24 +564,12 @@ def wrap_deepmind(env, episode_life=True, clip_rewards=True, frame_stack=False, 
     return env
 
 
-class ImageToPyTorch(gym.ObservationWrapper):
+def wrap_pytorch(env) -> gym.Env:
+    """Applies :py:class:`ImageToPyTorch` as wrap.
+
+    Arguments
+    ----------
+    env: :py:obj:`gym.Env`
+        An environment that will be wrapped.
     """
-    Image shape to channels x weight x height
-    """
-
-    def __init__(self, env):
-        super(ImageToPyTorch, self).__init__(env)
-        old_shape = self.observation_space.shape
-        self.observation_space = gym.spaces.Box(
-            low=0,
-            high=255,
-            shape=(old_shape[-1], old_shape[0], old_shape[1]),
-            dtype=np.uint8,
-        )
-
-    def observation(self, observation):
-        return np.transpose(observation, axes=(2, 0, 1))
-
-
-def wrap_pytorch(env):
     return ImageToPyTorch(env)

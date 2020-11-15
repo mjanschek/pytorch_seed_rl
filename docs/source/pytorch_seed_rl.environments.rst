@@ -14,7 +14,7 @@ pytorch\_seed\_rl.environments.atari\_wrappers module
 
 .. automodule:: pytorch_seed_rl.environments.atari_wrappers
    :members:
-   :undoc-members:
+   :no-undoc-members:
    :show-inheritance:
 
 pytorch\_seed\_rl.environments.env\_spawner module
@@ -23,13 +23,5 @@ pytorch\_seed\_rl.environments.env\_spawner module
 .. automodule:: pytorch_seed_rl.environments.env_spawner
    :members:
    :undoc-members:
+   :no-private-members:
    :show-inheritance:
-
-pytorch\_seed\_rl.environments.environment module
--------------------------------------------------
-
-.. automodule:: pytorch_seed_rl.environments.environment
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
