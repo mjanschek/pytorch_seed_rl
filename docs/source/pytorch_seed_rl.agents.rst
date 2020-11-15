@@ -9,7 +9,7 @@ Module ``agents``
 Exposed Classes
 -----------------------------------------------------
 
-``Actor`` class
+``Actor``
 .....................................................
 
 .. automodule:: pytorch_seed_rl.agents.actor
@@ -17,7 +17,7 @@ Exposed Classes
    :undoc-members:
    :show-inheritance:
 
-``Learner`` class
+``Learner``
 .....................................................
 
 .. automodule:: pytorch_seed_rl.agents.learner
@@ -28,7 +28,7 @@ Exposed Classes
 Parent classes
 -----------------------------------------------------
 
-``RpcCallee`` class
+``RpcCallee``
 .....................................................
 
 .. automodule:: pytorch_seed_rl.agents.rpc_callee
@@ -36,7 +36,7 @@ Parent classes
    :undoc-members:
    :show-inheritance:
 
-``RpcCaller`` class
+``RpcCaller``
 .....................................................
 
 .. automodule:: pytorch_seed_rl.agents.rpc_caller

@@ -10,6 +10,7 @@ Welcome to PyTorch SEED RL's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+`Github repository <https://github.com/mjanschek/pytorch_seed_rl>`__
 
 
 Indices and tables

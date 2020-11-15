@@ -6,10 +6,10 @@ Module ``environments``
    :undoc-members:
    :show-inheritance:
 
-Exposed Submodules
+Exposed Classes
 -----------------------------------------------------
 
-``EnvSpawner`` class
+``EnvSpawner``
 .....................................................
 
 .. automodule:: pytorch_seed_rl.environments.env_spawner
@@ -21,7 +21,7 @@ Exposed Submodules
 Unexposed Submodules
 -----------------------------------------------------
 
-``atari_wrappers`` module
+``atari_wrappers``
 .....................................................
 
 .. automodule:: pytorch_seed_rl.environments.atari_wrappers
