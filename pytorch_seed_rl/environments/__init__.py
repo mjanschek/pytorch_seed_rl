@@ -1,9 +1,16 @@
 """The :py:mod:`environments` module includes all necessary functionality to spawn and wrap environments.
 
-The module :py:mod:`~pytorch_seed_rl.environments.atari_wrappers` is a modified copy from the `torchbeast project <https://github.com/facebookresearch/torchbeast>`__.
+The module :py:mod:`~pytorch_seed_rl.environments.atari_wrappers` is a modified copy from the torchbeast project.
 
 Exposed classes:
     * :py:class:`~env_spawner.EnvSpawner`
+
+Unexposed modules:
+    * :py:mod:`~pytorch_seed_rl.environments.atari_wrappers`
+
+See Also
+--------
+`Github repository <https://github.com/facebookresearch/torchbeast>`__ of the torchbeast project.
 """
 
 from .env_spawner import EnvSpawner
