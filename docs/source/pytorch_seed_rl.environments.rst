@@ -1,4 +1,4 @@
-pytorch\_seed\_rl.environments package
+Module ``environments``
 ======================================
 
 .. automodule:: pytorch_seed_rl.environments
@@ -9,7 +9,7 @@ pytorch\_seed\_rl.environments package
 Exposed Submodules
 -----------------------------------------------------
 
-EnvSpawner class
+``EnvSpawner`` class
 .....................................................
 
 .. automodule:: pytorch_seed_rl.environments.env_spawner
@@ -21,7 +21,7 @@ EnvSpawner class
 Unexposed Submodules
 -----------------------------------------------------
 
-atari\_wrappers module
+``atari_wrappers`` module
 .....................................................
 
 .. automodule:: pytorch_seed_rl.environments.atari_wrappers

@@ -1,4 +1,4 @@
-pytorch\_seed\_rl.agents package
+Module ``agents``
 ================================
 
 .. automodule:: pytorch_seed_rl.agents
@@ -6,35 +6,38 @@ pytorch\_seed\_rl.agents package
    :undoc-members:
    :show-inheritance:
 
-Submodules
-----------
+Exposed Classes
+-----------------------------------------------------
 
-pytorch\_seed\_rl.agents.actor module
--------------------------------------
+``Actor`` class
+.....................................................
 
 .. automodule:: pytorch_seed_rl.agents.actor
    :members:
    :undoc-members:
    :show-inheritance:
 
-pytorch\_seed\_rl.agents.learner module
----------------------------------------
+``Learner`` class
+.....................................................
 
 .. automodule:: pytorch_seed_rl.agents.learner
    :members:
    :undoc-members:
    :show-inheritance:
 
-pytorch\_seed\_rl.agents.rpc\_callee module
--------------------------------------------
+Parent classes
+-----------------------------------------------------
+
+``RpcCallee`` class
+.....................................................
 
 .. automodule:: pytorch_seed_rl.agents.rpc_callee
    :members:
    :undoc-members:
    :show-inheritance:
 
-pytorch\_seed\_rl.agents.rpc\_caller module
--------------------------------------------
+``RpcCaller`` class
+.....................................................
 
 .. automodule:: pytorch_seed_rl.agents.rpc_caller
    :members:
