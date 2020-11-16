@@ -25,7 +25,7 @@ import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
 from torch import nn
-from torch.nn.parallel import DistributedDataParallel
+# from torch.nn.parallel import DistributedDataParallel
 from torch.optim.lr_scheduler import LambdaLR
 
 from .. import agents

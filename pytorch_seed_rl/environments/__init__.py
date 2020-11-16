@@ -3,7 +3,7 @@
 The module :py:mod:`~pytorch_seed_rl.environments.atari_wrappers` is a modified copy from the torchbeast project.
 
 Exposed classes:
-    * :py:class:`~env_spawner.EnvSpawner`
+    * :py:class:`~EnvSpawner`
 
 Unexposed modules:
     * :py:mod:`~pytorch_seed_rl.environments.atari_wrappers`

@@ -61,7 +61,7 @@ intersphinx_mapping = {
 autodoc_mock_imports = [
     "cv2",
     "gym",
-    "torch"
+    "torch",
 ]
 autodoc_default_options = {
     'member-order': 'bysource',

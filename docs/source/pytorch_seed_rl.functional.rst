@@ -1,4 +1,4 @@
-pytorch\_seed\_rl.functional package
+Module ``functional``
 ====================================
 
 .. automodule:: pytorch_seed_rl.functional

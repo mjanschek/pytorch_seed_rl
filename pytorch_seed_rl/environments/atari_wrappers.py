@@ -37,8 +37,8 @@ from collections import deque
 import cv2
 import gym
 import numpy as np
-from gym import spaces
 import torch
+from gym import spaces
 
 cv2.ocl.setUseOpenCL(False)
 
@@ -114,6 +114,52 @@ def wrap_pytorch(env) -> gym.Env:
     return ImageToPyTorch(env)
 
 
+class LazyFrames():
+    """This object ensures that common frames between the observations are only stored once.
+
+    It exists purely to optimize memory usage which can be huge for DQN's 1M frames replay
+    buffers.
+    This object should only be converted to numpy array before being passed to the model.
+    You'd not believe how complex the previous solution was.
+
+    Parameters
+    ----------
+    frames: `list`
+        A list of frames that shall be converted.
+    """
+
+    def __init__(self, frames):
+        self._frames = frames
+        self._out = None
+
+    def _force(self):
+        if self._out is None:
+            self._out = np.concatenate(self._frames, axis=-1)
+            self._frames = None
+        return self._out
+
+    def __array__(self, dtype=None):
+        out = self._force()
+        if dtype is not None:
+            out = out.astype(dtype)
+        return out
+
+    def __len__(self):
+        return len(self._force())
+
+    def __getitem__(self, i):
+        return self._force()[i]
+
+    def count(self):
+        # pylint: disable=unsubscriptable-object
+
+        frames = self._force()
+        return frames.shape[frames.ndim - 1]
+
+    def frame(self, i):
+        return self._force()[..., i]
+
+
 class AutoResetWrapper(gym.Wrapper):
     """A wrapper that automatically resets the environment in case of termination.
 
@@ -157,7 +203,7 @@ class ClipRewardEnv(gym.RewardWrapper):
         return np.sign(reward)
 
 
-class DictObservations(gym.Wrapper):
+class DictObservationsEnv(gym.Wrapper):
     """Provides observations as `dict` with additional metrics.
 
     Adds :py:meth:`initial()` method, which returns the initial observation.
@@ -359,52 +405,6 @@ class ImageToPyTorch(gym.ObservationWrapper):
     def _format_frame(frame):
         frame = torch.from_numpy(frame)
         return frame.view((1, 1) + frame.shape)  # (...) -> (T,B,...).
-
-
-class LazyFrames():
-    """This object ensures that common frames between the observations are only stored once.
-
-    It exists purely to optimize memory usage which can be huge for DQN's 1M frames replay
-    buffers.
-    This object should only be converted to numpy array before being passed to the model.
-    You'd not believe how complex the previous solution was.
-
-    Parameters
-    ----------
-    frames: `list`
-        A list of frames that shall be converted.
-    """
-
-    def __init__(self, frames):
-        self._frames = frames
-        self._out = None
-
-    def _force(self):
-        if self._out is None:
-            self._out = np.concatenate(self._frames, axis=-1)
-            self._frames = None
-        return self._out
-
-    def __array__(self, dtype=None):
-        out = self._force()
-        if dtype is not None:
-            out = out.astype(dtype)
-        return out
-
-    def __len__(self):
-        return len(self._force())
-
-    def __getitem__(self, i):
-        return self._force()[i]
-
-    def count(self):
-        # pylint: disable=unsubscriptable-object
-
-        frames = self._force()
-        return frames.shape[frames.ndim - 1]
-
-    def frame(self, i):
-        return self._force()[..., i]
 
 
 class MaxAndSkipEnv(gym.Wrapper):

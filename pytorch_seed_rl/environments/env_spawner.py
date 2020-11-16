@@ -52,7 +52,7 @@ class EnvSpawner():
 
         Applies:
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.ClipRewardEnv`
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.DictObservations`
+            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.DictObservationsEnv`
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.EpisodicLifeEnv`
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.FireResetEnv`, if :py:attr:`env` contains an action with meaning 'FIRE'
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.ImageToPyTorch`
@@ -60,7 +60,7 @@ class EnvSpawner():
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.NoopResetEnv` (`noop_max` = 30)
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.WarpFrame`
         """
-        return [atari_wrappers.DictObservations(
+        return [atari_wrappers.DictObservationsEnv(
             atari_wrappers.wrap_pytorch(
                 atari_wrappers.wrap_deepmind(
                     atari_wrappers.make_atari(self.env_id),
