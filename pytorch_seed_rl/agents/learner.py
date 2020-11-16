@@ -32,9 +32,9 @@ from .. import agents
 from ..agents.rpc_callee import RpcCallee
 from ..environments import EnvSpawner
 from ..functional import loss, vtrace
-from ..tools.logger import Logger
-from ..tools.trajectory_store import TrajectoryStore
-from ..tools.utils import listdict_to_dictlist
+from ..tools import Logger
+from ..tools import TrajectoryStore
+from ..tools.functions import listdict_to_dictlist
 
 
 class Learner(RpcCallee):

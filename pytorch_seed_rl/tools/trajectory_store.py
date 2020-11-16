@@ -21,16 +21,34 @@ from collections import deque
 
 import torch
 
-from ..tools.utils import listdict_to_dictlist
+from .functions import listdict_to_dictlist
 
 
 class TrajectoryStore():
-    """The store class can:
-        #. save and load info for a given unique key (hashmap?)
-        #. store a predefined data structure (not that flexible :-/)
+    """Trajectory store
+
+    Parameters
+    ----------
+    num_keys: `int`
+        The number of unique keys this store manages.
+    zero_obs: `dict`
+        A dictionary with the exact shape of data that shall be stored.
+    device: `torch.device`
+        The :py:obj:`torch.device` this stores data is stored on.
+    max_trajectory_length: `int`
+        The number of states a trajectory shall contain when completed.
+
+    Attributes
+    ----------
+    drop_off_queue: `deque`
+        A queue for dropped (complete) trajectories
     """
 
-    def __init__(self, num_keys, zero_obs, device, max_trajectory_length=128):
+    def __init__(self,
+                 num_keys: int,
+                 zero_obs: dict,
+                 device: torch.device,
+                 max_trajectory_length: int = 128):
 
         self.device = device
         self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}

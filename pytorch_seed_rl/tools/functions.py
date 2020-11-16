@@ -15,11 +15,25 @@
 """Collection of minor utility/qol functions
 """
 
+from typing import Dict, List
 
-# MOVE
-def listdict_to_dictlist(listdict):
+def listdict_to_dictlist(listdict: List[dict]) -> Dict[str, list]:
+    """Transforms a list of dictionaries into a dictionary of lists.
+
+    Parameters
+    ----------
+    listdict: 'list' of 'dict'
+        A list of dictionaries
+    """
     return {k: [dic[k] for dic in listdict] for k in listdict[0]}
 
 
-def dictlist_to_listdict(dictlist):
+def dictlist_to_listdict(dictlist: Dict[str, list]) -> List[dict]:
+    """Transforms a dictionary of lists into a list of dictionaries.
+
+    Parameters
+    ----------
+    listdict: 'dict' of 'list'
+        A dictionary of lists
+    """
     return [dict(zip(dictlist, t)) for t in zip(*dictlist.values())]

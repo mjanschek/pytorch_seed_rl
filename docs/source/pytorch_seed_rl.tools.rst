@@ -6,29 +6,29 @@ pytorch\_seed\_rl.tools package
    :undoc-members:
    :show-inheritance:
 
-Submodules
-----------
+Exposed classes
+----------------------------------------------------------------
 
-pytorch\_seed\_rl.tools.logger module
--------------------------------------
+Logger (``tools.Logger``)
+................................................................
 
-.. automodule:: pytorch_seed_rl.tools.logger
+.. autoclass:: pytorch_seed_rl.tools.Logger
    :members:
    :undoc-members:
    :show-inheritance:
 
-pytorch\_seed\_rl.tools.trajectory\_store module
-------------------------------------------------
+Trajectory store (``tools.TrajectoryStore``)
+................................................................
 
-.. automodule:: pytorch_seed_rl.tools.trajectory_store
+.. autoclass:: pytorch_seed_rl.tools.TrajectoryStore
    :members:
    :undoc-members:
    :show-inheritance:
 
-pytorch\_seed\_rl.tools.utils module
-------------------------------------------------
+Exposed functions (``tools.functions``)
+----------------------------------------------------------------
 
-.. automodule:: pytorch_seed_rl.tools.utils
+.. automodule:: pytorch_seed_rl.tools.functions
    :members:
    :undoc-members:
    :show-inheritance:

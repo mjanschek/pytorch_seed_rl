@@ -1,4 +1,5 @@
-"""The functional module implements various functional needed for reinforcement learning calculations.
+"""The functional module implements various functional needed
+for reinforcement learning calculations.
 
 Exposed functions:
     * :py:func:`loss.entropy`

@@ -12,5 +12,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Collection of minor utility/qol functions
+"""Collection of minor utility/q.o.l. functions
 """
