@@ -1,4 +1,4 @@
-pytorch\_seed\_rl.tools package
+Module ``tools``
 ===============================
 
 .. automodule:: pytorch_seed_rl.tools

@@ -48,6 +48,7 @@ class AtariNet(Module):
                  num_actions: int,
                  use_lstm: bool = False):
         super(AtariNet, self).__init__()
+        # ATTRIBUTES
         self.observation_shape = observation_shape
         self.num_actions = num_actions
 

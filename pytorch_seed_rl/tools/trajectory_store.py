@@ -13,11 +13,12 @@
 # limitations under the License.
 
 # pylint: disable=not-callable, missing-module-docstring, missing-class-docstring, missing-function-docstring, too-many-arguments, arguments-differ
-
-"""The store class can be configured for various data structures.
+"""
 """
 import copy
+import time
 from collections import deque
+from typing import List, Union
 
 import torch
 
@@ -25,18 +26,26 @@ from .functions import listdict_to_dictlist
 
 
 class TrajectoryStore():
-    """Trajectory store
+    """Data storage for trajectories produced by :py:class:`~pytorch_seed_rl.agents.Actor`.
+
+    This system includes:
+        * Management of stored trajectories, states are registered with the correct episode.
+        * Detection of completed trajectories. These reached a state, where `done` is True, or they contain a number of states equal to :py:attr:`max_trajectory_length`.
+        * Drop of completed trajectories. Data is queued into :py:attr:`drop_off_queue`, which can be accessed by external logic.
+        * Reset of dropped trajectories. Allocated memory is re-used for the next episode of this environment.
 
     Parameters
     ----------
-    num_keys: `int`
-        The number of unique keys this store manages.
+    keys: `list` of `int` or `str`
+        The unique keys this store manages.
     zero_obs: `dict`
         A dictionary with the exact shape of data that shall be stored.
     device: `torch.device`
         The :py:obj:`torch.device` this stores data is stored on.
     max_trajectory_length: `int`
         The number of states a trajectory shall contain when completed.
+    max_drop_off: `int`
+        The maximum number of dropped trajectories waiting in the queue.
 
     Attributes
     ----------
@@ -45,24 +54,31 @@ class TrajectoryStore():
     """
 
     def __init__(self,
-                 num_keys: int,
+                 keys: List[Union[int, str]],
                  zero_obs: dict,
                  device: torch.device,
-                 max_trajectory_length: int = 128):
-
+                 max_trajectory_length: int = 128,
+                 max_drop_off: int = 1024):
+        # ATTRIBUTES
+        self.max_trajectory_length = max_trajectory_length
         self.device = device
         self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}
-        # self.zero_obs = zero_obs
 
-        self.max_trajectory_length = max_trajectory_length
-
+        # Counters
         self.trajectory_counter = 0
         self.episode_counter = 0
 
-        self.drop_off_queue = deque()
-        self.internal_store = [self._new_trajectory() for _ in range(num_keys)]
+        # Setup storage
+        self.internal_store = {k: self._new_trajectory() for k in keys}
 
-    def _new_trajectory(self):
+        #
+        self.drop_off_queue = deque(
+            maxlen=max_drop_off
+        )
+
+    def _new_trajectory(self) -> dict:
+        """Returns a new, empty trajectory.
+        """
         trajectory = {
             "global_trajectory_id": torch.tensor(self.trajectory_counter, device=self.device),
             "global_episode_id": torch.tensor(self.episode_counter, device=self.device),
@@ -78,59 +94,117 @@ class TrajectoryStore():
         return trajectory
 
     def _new_states(self):
+        """Returns a new, empty state dictionary.
+        """
         states = {}
-        for key, value in self.zero_obs.items():
-            states[key] = value.repeat(
-                (self.max_trajectory_length,) + (1,)*(len(value.size())-1))
+        for k, v in self.zero_obs.items():
+            states[k] = v.repeat(
+                (self.max_trajectory_length,) + (1,)*(len(v.size())-1))
         return states
 
-    def _reset_trajectory(self, i, complete):
+    def _reset_trajectory(self,
+                          trajectory: dict):
+        """Resets a trajectory inplace.
+
+        Parameters
+        ----------
+        trajectory: `dict`
+            A trajectory as produced by :py:class:`pytorch_seed_rl.agents.Actor`
+        """
         self.trajectory_counter += 1
 
-        trajectory = self.internal_store[i]
         trajectory['global_trajectory_id'].fill_(self.trajectory_counter)
         trajectory['current_length'].fill_(0)
         trajectory['metrics'] = []
         self._reset_states(trajectory['states'])
 
-        if complete:
+        if trajectory['complete']:
             self.episode_counter += 1
             trajectory['global_episode_id'].fill_(self.episode_counter)
             trajectory['complete'].fill_(False)
 
     @staticmethod
     def _reset_states(states):
+        """Fills given list of states with 0 inplace.
+
+        Parameters
+        ----------
+        states: `list`
+            A list of states as produced from the interaction with an environment.
+        """
         for value in states.values():
             value.fill_(0)
 
-    def add_to_entry(self, i, state, metrics=None):
+    def add_to_entry(self,
+                     key: str,
+                     state: dict,
+                     metrics: dict = None):
+        """Fills given list of states with 0 inplace.
+
+        Parameters
+        ----------
+        key: `str`
+            The key of the trajectory this state relates to. Usually the environments unique global identifier.
+        state: `dict`
+            A state as produced from the interaction with an environment. This can include values from model evaluation.
+        metrics: `dict`
+            An optional dictionary containing additional values.
+        """
+        # all keys must be known to store
         assert all(k in self.zero_obs.keys() for k in state.keys())
 
+        # load known trajectory
+        trajectory = self.internal_store[key]
+        current_length = trajectory['current_length'].item()
+        states = trajectory['states']
+
+        # all metrics keys must be known to store, if trajectory already has valid data
+        if trajectory['current_length'] > 0:
+            assert metrics.keys() == trajectory["metrics"][0].keys()
+
+        # transform shape
         state = {k: v.view(self.zero_obs[k].shape)
                  for k, v in state.items()}
 
-        trajectory = self.internal_store[i]
-        current_length = trajectory['current_length'].item()
-        states = trajectory['states']
-        for key, value in state.items():
-            # print(key, states[key][current_length].shape, value.shape)
-            states[key][current_length].copy_(value[0])
+        # overwrite known state (expected to be empty)
+        for k, v in state.items():
+            states[k][current_length].copy_(v[0])
+
+        # update trajectory
+        trajectory["metrics"].append(metrics)
 
         trajectory['current_length'] += 1
+
         if state['done'] and state['episode_step'] > 1:
             trajectory["complete"].fill_(True)
 
+        # drop trajectory, if complete
         if trajectory["complete"] or (trajectory['current_length'] == self.max_trajectory_length):
+            # print(key, trajectory["global_episode_id"].item())
             self._drop(trajectory)
-            self._reset_trajectory(i, trajectory["complete"])
+            self._reset_trajectory(trajectory)
 
-        trajectory["metrics"].append(metrics)
+    def _drop(self,
+              trajectory: dict,
+              waiting_time: float = 0.1):
+        """Copies a trajectory and drops the copy on :py:attr:`self.drop_off_queue`.
 
-    def _drop(self, trajectory):
+        The original trajectory will be reset in place to keep its memory allocated.
+
+        Parameters
+        ----------
+        trajectory: `dict`
+            The trajectory to drop.
+        waiting_time: `float`
+            The time in seconds this method waits between checks, if :py:attr:`self.drop_off_queue` is still full.
+        """
         trajectory["metrics"] = listdict_to_dictlist(trajectory["metrics"])
         for k, v in trajectory["metrics"].items():
             trajectory["metrics"][k] = torch.cat(v)
 
         t = copy.deepcopy(trajectory)
 
+        # prohibit reaching maxlen of drop off queue
+        while len(self.drop_off_queue) >= self.drop_off_queue.maxlen:
+            time.sleep(waiting_time)
         self.drop_off_queue.append(t)

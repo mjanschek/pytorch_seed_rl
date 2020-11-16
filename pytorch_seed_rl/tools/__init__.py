@@ -1,4 +1,4 @@
-"""This module includes all implemented data structures and storages, like stores or buffers.
+"""This module includes all data related tools.
 """
 from .logger import Logger
 from .trajectory_store import TrajectoryStore

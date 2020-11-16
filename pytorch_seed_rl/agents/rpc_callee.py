@@ -46,10 +46,10 @@ class RpcCallee():
         Class used to spawn callers.
     caller_args: `list`
         Arguments to pass to :py:attr:`caller_class`.
+    future_keys: `list`
+        Unique identifiers of future answers.
     rpc_batchsize: `int`
         Number of RPCs to gather before processing them as batch.
-    max_pending_rpcs: `int`
-        Maximumg number of concurrently waiting RPCs.
     """
 
     def __init__(self,
@@ -58,8 +58,8 @@ class RpcCallee():
                  num_callers: int = 1,
                  caller_class: object = None,
                  caller_args=None,
-                 rpc_batchsize: int = 4,
-                 max_pending_rpcs: int = 4):
+                 future_keys: list = [None],
+                 rpc_batchsize: int = 4):
 
         # ASSERTIONS
         assert num_callees > 0
@@ -68,16 +68,15 @@ class RpcCallee():
         # caller_class must be given
         assert caller_class is not None
 
+        # Number of future_keys must be equal or greater rpc_batchsize
+        assert rpc_batchsize <= len(future_keys)
+
         # callee_rref is correct subclass
         from ..agents.rpc_caller import RpcCaller
         assert issubclass(caller_class, RpcCaller)
 
-        # rpc_batchsize must smaller or equal maximal pending rpcs
-        assert rpc_batchsize <= max_pending_rpcs
-
         # ATTRIBUTES
         self.rpc_batchsize = rpc_batchsize
-        self.max_pending_rpcs = max_pending_rpcs
         self.rank = rank
 
         self.id = rpc.get_worker_info().id
@@ -90,8 +89,9 @@ class RpcCallee():
         # storage
         self.active_callers = {}
         self.caller_rrefs = []
-        self.pending_rpcs = deque(maxlen=self.max_pending_rpcs)
-        self.future_answers = [Future() for i in range(self.max_pending_rpcs)]
+        self.pending_rpcs = deque()
+
+        self.future_answers = {k: Future() for k in future_keys}
 
         # spawn actors
         self._spawn_callers(caller_class, num_callees,
@@ -116,12 +116,13 @@ class RpcCallee():
             Arguments to pass to :py:attr:`caller_class`.
         """
         for i in range(num_callers):
-            callers_info = rpc.get_worker_info("actor%d" % (i+num_callees))
+            rank = i + num_callees
+            callers_info = rpc.get_worker_info("actor%d" % (rank))
 
             # Store RRef of spawned caller
             self.caller_rrefs.append(rpc.remote(callers_info,
                                                 caller_class,
-                                                args=(i, self.rref, *args)))
+                                                args=(rank, self.rref, *args)))
         print("{} callers spawned, awaiting start.".format(num_callers))
 
     def _start_callers(self):
@@ -271,11 +272,13 @@ class RpcCallee():
         """Answers all pending RPCs if their caller is not inactive, yet.
         """
         while len(self.active_callers) > 0:
+
             try:
                 rpc_tuple = self.pending_rpcs.popleft()
             except IndexError:
                 time.sleep(0.1)
                 continue
+
             caller_id = rpc_tuple[0]
 
             # return answer=None, shutdown=True, answer_id=caller_id, empty dict

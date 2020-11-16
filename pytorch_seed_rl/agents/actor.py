@@ -68,7 +68,7 @@ class Actor(RpcCaller):
             Implements :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller._loop()`.
         """
         self.act()
-
+        
     def act(self):
         """Interact with internal environment.
 
@@ -81,7 +81,10 @@ class Actor(RpcCaller):
 
         # Wait for requested action for each environment.
         for i, rpc_tuple in enumerate(future_actions):
-            action, self.shutdown, answer_id, inference_infos = rpc_tuple.wait()
+            try:
+                action, self.shutdown, answer_id, inference_infos = rpc_tuple.wait()
+            except KeyError as e:
+                print(i, self._gen_env_id(i))
 
             # If requested action is None, Learner was shutdown. Loop can be exited here.
             if action is None:
@@ -115,6 +118,7 @@ class Actor(RpcCaller):
                                 metrics=self.metrics[i],
                                 test={'t': 'v'})
 
+
     def _cleanup(self):
         """Cleans up after main loop is done.
 
@@ -126,4 +130,4 @@ class Actor(RpcCaller):
     def _gen_env_id(self, i: int) -> int:
         """Returns the global environment id, given the local id.
         """
-        return self.rank*self.num_envs+i
+        return (self.rank-1)*self.num_envs+i

@@ -57,7 +57,7 @@ class RpcCaller():
 
         while not self.shutdown:
             self._loop()
-
+        
         self.callee_rref.rpc_sync().check_out(self.rank)
         self._cleanup()
 

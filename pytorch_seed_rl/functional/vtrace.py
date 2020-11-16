@@ -19,7 +19,7 @@
 #
 # Taken from
 #   https://github.com/facebookresearch/torchbeast/blob/master/torchbeast/core/vtrace.py
-# and modified
+# and modified (mostly documentation)
 """Functions to compute V-trace off-policy actor critic targets.
 
 See Also

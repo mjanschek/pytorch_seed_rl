@@ -104,14 +104,15 @@ class Learner(RpcCallee):
                  exp_name: str = ""):
 
         self.total_num_envs = num_actors*env_spawner.num_envs
+        self.envs_list = [i for i in range(self.total_num_envs)]
 
         super().__init__(rank,
                          num_callees=num_learners,
                          num_callers=num_actors,
                          caller_class=agents.Actor,
                          caller_args=[env_spawner],
-                         rpc_batchsize=inference_batchsize,
-                         max_pending_rpcs=self.total_num_envs)
+                         future_keys=self.envs_list,
+                         rpc_batchsize=inference_batchsize)
 
         # ATTRIBUTES
         self.rollout_length = rollout_length
@@ -174,7 +175,7 @@ class Learner(RpcCallee):
 
         # spawn trajectory store
         placeholder_eval_obs = self._build_placeholder_eval_obs(env_spawner)
-        self.trajectory_store = TrajectoryStore(self.total_num_envs,
+        self.trajectory_store = TrajectoryStore(self.envs_list,
                                                 placeholder_eval_obs,
                                                 self.device,
                                                 max_trajectory_length=rollout_length)
@@ -570,12 +571,12 @@ class Learner(RpcCallee):
             print("\n============== REPORT ==============")
             fps = self.inference_steps / runttime
 
-            print("infered", str(self.inference_steps), "times")
+            print("infered", str(self.inference_steps), "steps")
             print("in", str(runttime), "seconds")
             print("==>", str(fps), "fps")
 
             fps = self.training_steps / runttime
-            print("trained", str(self.training_steps), "times")
+            print("trained", str(self.training_steps), "steps")
             print("in", str(runttime), "seconds")
             print("==>", str(fps), "fps")
 
