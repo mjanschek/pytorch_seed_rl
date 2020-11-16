@@ -1,4 +1,4 @@
-pytorch\_seed\_rl.nets package
+Module ``nets``
 ==============================
 
 .. automodule:: pytorch_seed_rl.nets
@@ -6,14 +6,11 @@ pytorch\_seed\_rl.nets package
    :undoc-members:
    :show-inheritance:
 
-Submodules
+Networks
 ----------
 
-pytorch\_seed\_rl.nets.atari\_net module
-----------------------------------------
+Neural network for atari games (``nets.AtariNet``)
+..................................................
 
-.. automodule:: pytorch_seed_rl.nets.atari_net
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: pytorch_seed_rl.nets.AtariNet
 
