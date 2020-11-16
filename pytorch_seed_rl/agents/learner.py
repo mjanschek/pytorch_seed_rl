@@ -31,10 +31,10 @@ from torch.optim.lr_scheduler import LambdaLR
 from .. import agents
 from ..agents.rpc_callee import RpcCallee
 from ..environments import EnvSpawner
-from ..functional import util, vtrace
-from ..functional.util import listdict_to_dictlist
+from ..functional import loss, vtrace
 from ..tools.logger import Logger
 from ..tools.trajectory_store import TrajectoryStore
+from ..tools.utils import listdict_to_dictlist
 
 
 class Learner(RpcCallee):
@@ -51,7 +51,7 @@ class Learner(RpcCallee):
         * Starts a continous prefetching process to prepare batches of complete trajectories for learning.
 
     During runtime:
-        * Runs evaluates observations received from :py:class:`~pytorch_seed_rl.agents.Actor`s and returns actions.
+        * Runs evaluates observations received from :py:class:`~pytorch_seed_rl.agents.Actor` and returns actions.
         * Stores incomplete trajectories in :py:class:`~pytorch_seed_rl.tools.trajectory_store`.
         * Trains a global model from trajectories received from a data prefetching thread.
 
@@ -254,9 +254,9 @@ class Learner(RpcCallee):
         Called by :py:meth:`_process_batch()`.
 
         Before returning the result for the given batch, this method:
-        #. Moves its data to the :py:class:`Learner` device (usually GPU)
-        #. Runs inference on this data
-        #. Sends evaluated data to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` using a parallel RPC of :py:meth:`add_to_store()`.
+            #. Moves its data to the :py:class:`Learner` device (usually GPU)
+            #. Runs inference on this data
+            #. Sends evaluated data to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` using a parallel RPC of :py:meth:`add_to_store()`.
 
         Parameters
         ----------
@@ -301,7 +301,7 @@ class Learner(RpcCallee):
     def add_to_store(self,
                      caller_ids: List[Union[int, str]],
                      all_metrics: dict):
-        """Sends states within :py:attr:`self.states_to_store` and metrics to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` according to py:attr:`caller_ids`.
+        """Sends states within :py:attr:`self.states_to_store` and metrics to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` according to :py:attr:`caller_ids`.
 
         Parameters
         ----------
@@ -337,10 +337,10 @@ class Learner(RpcCallee):
         """Runs the learning process and updates the internal model.
 
         This method:
-        #. Evaluates the given :py:attr:`batch` with the internal learning model.
-        #. Invokes :py:meth:`compute_losses()` to get all components of the loss function.
-        #. Calculates the total loss, using the given cost factors for each component.
-        #. Updates the model by invoking the :py:attr:`self.optimizer`.
+            #. Evaluates the given :py:attr:`batch` with the internal learning model.
+            #. Invokes :py:meth:`compute_losses()` to get all components of the loss function.
+            #. Calculates the total loss, using the given cost factors for each component.
+            #. Updates the model by invoking the :py:attr:`self.optimizer`.
 
         Parameters
         ----------
@@ -398,7 +398,14 @@ class Learner(RpcCallee):
                        discounting: float = 0.99,
                        reward_clipping: bool = True
                        ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Computes and returns the components of IMPALA loss: Policy gradient, baseline and entropy loss.
+        """Computes and returns the components of IMPALA loss.
+
+        Calculates policy gradient, baseline and entropy loss using Vtrace for value estimation.
+
+        See Also
+        --------
+        * :py:mod:`~pytorch_seed_rl.functional.loss`
+        * :py:mod:`~pytorch_seed_rl.functional.vtrace`
 
         Parameters
         ----------
@@ -427,30 +434,23 @@ class Learner(RpcCallee):
 
         discounts = (~batch["done"]).float() * discounting
 
-        vtrace_returns = vtrace.from_logits(
-            behavior_policy_logits=batch["policy_logits"],
-            target_policy_logits=learner_outputs["policy_logits"],
-            actions=batch["action"],
-            discounts=discounts,
-            rewards=batch["reward"],
-            values=learner_outputs["baseline"],
-            bootstrap_value=bootstrap_value,
-        )
+        vtrace_returns = vtrace.from_logits(behavior_policy_logits=batch["policy_logits"],
+                                            target_policy_logits=learner_outputs["policy_logits"],
+                                            values=learner_outputs["baseline"],
+                                            bootstrap_value=bootstrap_value,
+                                            actions=batch["action"],
+                                            rewards=batch["reward"],
+                                            discounts=discounts,)
 
-        pg_loss = util.compute_policy_gradient_loss(
-            learner_outputs["policy_logits"],
-            batch["action"],
-            vtrace_returns.pg_advantages,
-        )
+        pg_loss = loss.policy_gradient(learner_outputs["policy_logits"],
+                                       batch["action"],
+                                       vtrace_returns.pg_advantages)
 
-        baseline_loss = F.mse_loss(
-            learner_outputs["baseline"],
-            vtrace_returns.vs, reduction='sum'
-        )
+        baseline_loss = F.mse_loss(learner_outputs["baseline"],
+                                   vtrace_returns.vs,
+                                   reduction='sum')
 
-        entropy_loss = util.compute_entropy_loss(
-            learner_outputs["policy_logits"]
-        )
+        entropy_loss = loss.entropy(learner_outputs["policy_logits"])
 
         return pg_loss, baseline_loss, entropy_loss
 

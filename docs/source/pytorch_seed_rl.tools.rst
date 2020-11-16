@@ -25,3 +25,11 @@ pytorch\_seed\_rl.tools.trajectory\_store module
    :undoc-members:
    :show-inheritance:
 
+pytorch\_seed\_rl.tools.utils module
+------------------------------------------------
+
+.. automodule:: pytorch_seed_rl.tools.utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+

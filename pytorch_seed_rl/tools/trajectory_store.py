@@ -21,7 +21,7 @@ from collections import deque
 
 import torch
 
-from ..functional.util import listdict_to_dictlist
+from ..tools.utils import listdict_to_dictlist
 
 
 class TrajectoryStore():

@@ -24,7 +24,8 @@ from torch.distributed import rpc
 from torch.distributed.rpc import RRef
 from torch.distributed.rpc.functions import async_execution
 from torch.futures import Future
-from ..functional.util import listdict_to_dictlist
+
+from ..tools.utils import listdict_to_dictlist
 
 
 class RpcCallee():

@@ -21,8 +21,8 @@ from torch.distributed.rpc import RRef
 from torch.futures import Future
 
 from .. import agents
-from .rpc_caller import RpcCaller
 from ..environments import EnvSpawner
+from .rpc_caller import RpcCaller
 
 
 class Actor(RpcCaller):

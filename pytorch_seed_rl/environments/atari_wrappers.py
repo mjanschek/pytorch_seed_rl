@@ -25,7 +25,11 @@
 # and slightly modified (again)
 
 # pylint: disable=missing-module-docstring, missing-class-docstring, missing-function-docstring, too-many-arguments, arguments-differ
-"""
+"""A collection of wrappers applicable to environments following the OpenAI gym API
+
+See Also
+--------
+`OpenAI Gym <https://gym.openai.com/>`__
 """
 
 from collections import deque

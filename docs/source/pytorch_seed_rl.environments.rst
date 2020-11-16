@@ -9,8 +9,8 @@ Module ``environments``
 Exposed Classes
 -----------------------------------------------------
 
-``EnvSpawner``
-.....................................................
+Environment spawner object (``environments.EnvSpawner``)
+........................................................
 
 .. automodule:: pytorch_seed_rl.environments.env_spawner
    :members:
@@ -21,8 +21,8 @@ Exposed Classes
 Unexposed Submodules
 -----------------------------------------------------
 
-``atari_wrappers``
-.....................................................
+Wrappers for OpenAI Gym (``environments.atari_wrappers``)
+.........................................................
 
 .. automodule:: pytorch_seed_rl.environments.atari_wrappers
    :members:

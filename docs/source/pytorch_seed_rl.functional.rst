@@ -6,19 +6,19 @@ pytorch\_seed\_rl.functional package
    :undoc-members:
    :show-inheritance:
 
-Submodules
-----------
+Exposed functions
+-----------------------------------------------------
 
-pytorch\_seed\_rl.functional.util module
-----------------------------------------
+Loss functions (``functional.loss``)
+.....................................................
 
-.. automodule:: pytorch_seed_rl.functional.util
+.. automodule:: pytorch_seed_rl.functional.loss
    :members:
    :undoc-members:
    :show-inheritance:
 
-pytorch\_seed\_rl.functional.vtrace module
-------------------------------------------
+Vtrace (``functional.vtrace``)
+.....................................................
 
 .. automodule:: pytorch_seed_rl.functional.vtrace
    :members:
