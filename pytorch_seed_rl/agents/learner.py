@@ -170,7 +170,6 @@ class Learner(RpcCallee):
         # rpc stuff
         self.event_start_training = mp.Event()
         self.event_start_processing = mp.Event()
-        # self.lock_training = mp.Lock()
         self.lock_model = mp.Lock()
 
         # spawn trajectory store
@@ -181,8 +180,9 @@ class Learner(RpcCallee):
                                                 max_trajectory_length=rollout_length)
 
         # spawn logger
-        self.logger = Logger(
-            ['csv'], ['episodes', 'training', 'system'], "/".join([self.save_path, "logs", self.exp_name]))
+        self.logger = Logger(['episodes', 'training', 'system'],
+                             "/".join([self.save_path, "logs", self.exp_name]),
+                             modes=['csv'])
 
         # start prefetch thread as remote rpc
         self.prefetch_thread = self.rref.remote().prefetch()
@@ -203,14 +203,14 @@ class Learner(RpcCallee):
         if len(self.training_batch_queue) == 0:
             self.event_start_training.clear()
             self.event_start_training.wait()
-        # with self.lock_training:
+
         start = time.time()
         training_metrics = self._learn_from_batch(
             self.training_batch_queue.popleft())
         self.training_time += time.time()-start
 
+        # copy parameters from training to inference model
         with self.lock_model, torch.no_grad():
-            # copy parameters from training to inference model
             for m, i in zip(self.model.parameters(), self.eval_model.parameters()):
                 i.copy_(m)
 

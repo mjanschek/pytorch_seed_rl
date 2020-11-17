@@ -28,7 +28,7 @@ from .functions import listdict_to_dictlist
 class TrajectoryStore():
     """Data storage for trajectories produced by :py:class:`~pytorch_seed_rl.agents.Actor`.
 
-    This system includes:
+    This object includes:
         * Management of stored trajectories, states are registered with the correct episode.
         * Detection of completed trajectories. These reached a state, where `done` is True, or they contain a number of states equal to :py:attr:`max_trajectory_length`.
         * Drop of completed trajectories. Data is queued into :py:attr:`drop_off_queue`, which can be accessed by external logic.

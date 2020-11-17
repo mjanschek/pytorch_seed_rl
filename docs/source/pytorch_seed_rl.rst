@@ -1,12 +1,12 @@
-pytorch\_seed\_rl package
-=========================
+API documentation of ``pytorch_seed_rl``
+========================================
 
 .. automodule:: pytorch_seed_rl
    :members:
    :undoc-members:
    :show-inheritance:
 
-Subpackages
+Submodules
 -----------
 
 .. toctree::
@@ -16,15 +16,3 @@ Subpackages
    pytorch_seed_rl.functional
    pytorch_seed_rl.nets
    pytorch_seed_rl.tools
-
-Submodules
-----------
-
-pytorch\_seed\_rl.util module
------------------------------
-
-.. automodule:: pytorch_seed_rl.util
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
