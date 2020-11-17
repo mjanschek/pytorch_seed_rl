@@ -1,4 +1,8 @@
-"""The functional module implements various functional methods.
+"""The functional module implements various functional needed
+for reinforcement learning calculations.
 
-Mostly, but not exclusively needed for RL calculations.
+Exposed functions:
+    * :py:func:`loss.entropy`
+    * :py:func:`loss.policy_gradient`
+    * :py:func:`vtrace.from_logits`
 """

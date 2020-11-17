@@ -1,8 +1,13 @@
-"""The agents module exposes the classes Actor, Learner and Logger.
+"""The :py:mod:`agents` module holds all classes that can interact within the created RPC group.
+
+Exposed classes:
+    * :py:class:`~Actor` (Child of :py:class:`~rpc_caller.RpcCaller`)
+    * :py:class:`~Learner` (Child of :py:class:`~rpc_callee.RpcCallee`)
+
+Parent classes:
+    * :py:class:`~rpc_callee.RpcCallee`
+    * :py:class:`~rpc_caller.RpcCaller`
 """
 
 from .actor import Actor
 from .learner import Learner
-from .logger import Logger
-from .rpc_callee import RpcCallee
-from .rpc_caller import RpcCaller

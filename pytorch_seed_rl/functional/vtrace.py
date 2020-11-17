@@ -16,19 +16,33 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+#
+# Taken from
+#   https://github.com/facebookresearch/torchbeast/blob/master/torchbeast/core/vtrace.py
+# and modified (mostly documentation)
 """Functions to compute V-trace off-policy actor critic targets.
-For details and theory see:
-"IMPALA: Scalable Distributed Deep-RL with
-Importance Weighted Actor-Learner Architectures"
-by Espeholt, Soyer, Munos et al.
-See https://arxiv.org/abs/1802.01561 for the full paper.
+
+See Also
+--------
+`"IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures"  on arXiv <https://arxiv.org/abs/1802.01561>`__ by Espeholt, Soyer, Munos et al.
+
+All exposed functions return a :py:class:`~VTraceFromLogitsReturns`.
 """
 
 import collections
 
 import torch
 import torch.nn.functional as F
+
+
+def _action_log_probs(policy_logits: torch.Tensor,
+                      actions: torch.Tensor) -> torch.Tensor:
+    """Select the logits by their actions using negative log likelihood loss.
+    """
+    return -F.nll_loss(F.log_softmax(torch.flatten(policy_logits, 0, -2), dim=-1),
+                       torch.flatten(actions).to(torch.long),
+                       reduction="none",
+                       ).view_as(actions)
 
 
 VTraceFromLogitsReturns = collections.namedtuple(
@@ -42,38 +56,47 @@ VTraceFromLogitsReturns = collections.namedtuple(
     ],
 )
 
-VTraceReturns = collections.namedtuple("VTraceReturns", "vs pg_advantages")
 
+def from_logits(behavior_policy_logits: torch.Tensor,
+                target_policy_logits: torch.Tensor,
+                values: torch.Tensor,
+                bootstrap_value: torch.Tensor,
+                actions: torch.Tensor,
+                discounts: torch.Tensor,
+                rewards: torch.Tensor,
+                clip_rho_threshold: float = 1.0,
+                clip_pg_rho_threshold: float = 1.0,
+                ) -> VTraceFromLogitsReturns:
+    """V-trace for softmax policies.
 
-def action_log_probs(policy_logits, actions):
-    return -F.nll_loss(
-        F.log_softmax(torch.flatten(policy_logits, 0, -2), dim=-1),
-        torch.flatten(actions).to(torch.long),
-        reduction="none",
-    ).view_as(actions)
-
-
-def from_logits(behavior_policy_logits,
-                target_policy_logits,
-                actions,
-                discounts,
-                rewards,
-                values,
-                bootstrap_value,
-                clip_rho_threshold=1.0,
-                clip_pg_rho_threshold=1.0,
-                ):
-    """V-trace for softmax policies."""
-
-    # print(actions.shape)
-    # print(target_policy_logits.shape)
-    # print(behavior_policy_logits.shape)
-
-    target_action_log_probs = action_log_probs(target_policy_logits, actions)
-    behavior_action_log_probs = action_log_probs(
+    Parameters
+    ----------
+    behavior_policy_logits: `torch.Tensor`
+        The policies logits used for action sampling during interaction with the environment.
+    target_policy_logits: `torch.Tensor`
+        The policies logits returned by the learning model.
+    values: `torch.Tensor`
+        The values returned by the learning model.
+    bootstrap_value: `torch.Tensor`
+        The value used for bootstrapping (usually most recent value returned by learning model.)
+    actions: `torch.Tensor`
+        The actions used during interaction with the environment.
+    discounts: `torch.Tensor`
+        The discounted rewards.
+    rewards: `torch.Tensor`
+        The original rewards.
+    clip_rho_threshold: `float`,
+        Clipping value for Vtrace. See paper for details.
+    clip_pg_rho_threshold: `float`,
+        Clipping value for Vtrace. See paper for details.
+    """
+    # prepare logits
+    target_action_log_probs = _action_log_probs(target_policy_logits, actions)
+    behavior_action_log_probs = _action_log_probs(
         behavior_policy_logits, actions)
     log_rhos = target_action_log_probs - behavior_action_log_probs
-    vtrace_returns = from_importance_weights(
+
+    vtrace_returns = _from_importance_weights(
         log_rhos=log_rhos,
         discounts=discounts,
         rewards=rewards,
@@ -90,16 +113,37 @@ def from_logits(behavior_policy_logits,
     )
 
 
+_VTraceReturns = collections.namedtuple("VTraceReturns", "vs pg_advantages")
+
+
 @torch.no_grad()
-def from_importance_weights(log_rhos,
-                            discounts,
-                            rewards,
-                            values,
-                            bootstrap_value,
-                            clip_rho_threshold=1.0,
-                            clip_pg_rho_threshold=1.0,
-                            ):
-    """V-trace from log importance weights."""
+def _from_importance_weights(log_rhos: torch.Tensor,
+                             values: torch.Tensor,
+                             bootstrap_value: torch.Tensor,
+                             discounts: torch.Tensor,
+                             rewards: torch.Tensor,
+                             clip_rho_threshold: float = 1.0,
+                             clip_pg_rho_threshold: float = 1.0,
+                             ) -> _VTraceReturns:
+    """V-trace from logarithmic importance weights.
+
+    Parameters
+    ----------
+    log_rhos: `torch.Tensor`
+        Logarithmic importance weights calculated from behaviour and target policy.
+    values: `torch.Tensor`
+        The values returned by the learning model.
+    bootstrap_value: `torch.Tensor`
+        The value used for bootstrapping (usually most recent value returned by learning model.)
+    discounts: `torch.Tensor`
+        The discounted rewards.
+    rewards: `torch.Tensor`
+        The original rewards.
+    clip_rho_threshold: `float`,
+        Clipping value for Vtrace. See paper for details.
+    clip_pg_rho_threshold: `float`,
+        Clipping value for Vtrace. See paper for details.
+    """
     with torch.no_grad():
         rhos = torch.exp(log_rhos)
         if clip_rho_threshold is not None:
@@ -140,4 +184,4 @@ def from_importance_weights(log_rhos,
             (rewards + discounts * vs_t_plus_1 - values)
 
         # Make sure no gradients backpropagated through the returned values.
-        return VTraceReturns(vs=vs, pg_advantages=pg_advantages)
+        return _VTraceReturns(vs=vs, pg_advantages=pg_advantages)
