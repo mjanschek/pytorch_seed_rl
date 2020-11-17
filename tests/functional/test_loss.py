@@ -19,13 +19,13 @@
 # limitations under the License.
 #
 # pylint: disable=unpacking-non-sequence,too-many-function-args
-"""Tests for util loss functions implementation."""
+"""Tests for loss functions implementation."""
 
 import numpy as np
 import torch
 from torch.nn import functional as F
 
-from pytorch_seed_rl.functional import util
+from pytorch_seed_rl.functional import loss
 
 
 def _softmax(logits):
@@ -68,41 +68,20 @@ LOGITS_PG = np.array(
 ACTIONS_PG = np.array([[3, 0, 1], [4, 2, 2]])
 
 
-def test_compute_baseline_loss():
-    ground_truth_value = 0.5 * np.sum(ADV_BASELINE ** 2)
-    assert_allclose(
-        ground_truth_value,
-        util.compute_baseline_loss(torch.from_numpy(ADV_BASELINE)),
-    )
-
-
-def test_compute_baseline_loss_grad():
-    advantages_tensor = torch.from_numpy(ADV_BASELINE)
-    advantages_tensor.requires_grad_()
-    calculated_value = util.compute_baseline_loss(advantages_tensor)
-    calculated_value.backward()
-
-    # Manually computed gradients:
-    # 0.5 * d(xˆ2)/dx == x
-    # hence the expected gradient is the same as ADV_PG.
-    assert_allclose(advantages_tensor.grad, ADV_BASELINE)
-
-
-def test_compute_entropy_loss():
+def test_entropy():
     # Calculate entropy with:
     # H(s) = - sum(prob(x) * ln(prob(x)) for each x in s)
     softmax_logits = _softmax(LOGITS_ENTROPY)
     ground_truth_value = np.sum(softmax_logits * np.log(softmax_logits))
-    calculated_value = util.compute_entropy_loss(
-        torch.from_numpy(LOGITS_ENTROPY))
+    calculated_value = loss.entropy(torch.from_numpy(LOGITS_ENTROPY))
 
     assert_allclose(ground_truth_value, calculated_value)
 
 
-def test_compute_entropy_loss_grad():
+def test_compute_entropy_grad():
     logits_tensor = torch.from_numpy(LOGITS_ENTROPY)
     logits_tensor.requires_grad_()
-    calculated_value = util.compute_entropy_loss(logits_tensor)
+    calculated_value = loss.entropy(logits_tensor)
     calculated_value.backward()
 
     expected_grad = np.matmul(
@@ -116,7 +95,7 @@ def test_compute_entropy_loss_grad():
     assert_allclose(logits_tensor.grad, expected_grad)
 
 
-def test_compute_policy_gradient_loss():
+def test_policy_gradient():
     T, B, N = LOGITS_PG.shape
 
     # Calculate the the cross entropy loss, with the formula:
@@ -133,25 +112,23 @@ def test_compute_policy_gradient_loss():
         cross_entropy_loss * ADV_PG.reshape(T, B, 1)
     )
 
-    calculated_value = util.compute_policy_gradient_loss(
-        torch.from_numpy(LOGITS_PG),
-        torch.from_numpy(ACTIONS_PG),
-        torch.from_numpy(ADV_PG),
-    )
+    calculated_value = loss.policy_gradient(torch.from_numpy(LOGITS_PG),
+                                            torch.from_numpy(ACTIONS_PG),
+                                            torch.from_numpy(ADV_PG),
+                                            )
     assert_allclose(ground_truth_value, calculated_value.item())
 
 
-def test_compute_policy_gradient_loss_grad():
+def test_policy_gradient_grad():
     T, B, N = LOGITS_PG.shape
 
     logits_tensor = torch.from_numpy(LOGITS_PG)
     logits_tensor.requires_grad_()
 
-    calculated_value = util.compute_policy_gradient_loss(
-        logits_tensor,
-        torch.from_numpy(ACTIONS_PG),
-        torch.from_numpy(ADV_PG),
-    )
+    calculated_value = loss.policy_gradient(logits_tensor,
+                                            torch.from_numpy(ACTIONS_PG),
+                                            torch.from_numpy(ADV_PG),
+                                            )
 
     assert calculated_value.shape == torch.Size([])
     calculated_value.backward()
@@ -172,16 +149,17 @@ def test_compute_policy_gradient_loss_grad():
     assert_allclose(logits_tensor.grad, expected_grad)
 
 
-def test_compute_policy_gradient_loss_grad_flow():
+def test_policy_gradient_grad_flow():
     logits_tensor = torch.from_numpy(LOGITS_PG)
     logits_tensor.requires_grad_()
     advantages_tensor = torch.from_numpy(ADV_PG)
     advantages_tensor.requires_grad_()
 
-    loss = util.compute_policy_gradient_loss(
-        logits_tensor, torch.from_numpy(ACTIONS_PG), advantages_tensor
-    )
-    loss.backward()
+    pg_loss = loss.policy_gradient(logits_tensor,
+                                   torch.from_numpy(ACTIONS_PG),
+                                   advantages_tensor
+                                   )
+    pg_loss.backward()
 
     assert logits_tensor.grad is not None
     assert advantages_tensor.grad is None

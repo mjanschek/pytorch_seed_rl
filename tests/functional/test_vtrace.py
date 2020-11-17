@@ -17,8 +17,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+# pylint: disable=protected-access
 """Tests for V-trace.
+
 For details and theory see:
 "IMPALA: Scalable Distributed Deep-RL with
 Importance Weighted Actor-Learner Architectures"
@@ -42,15 +43,14 @@ def _softmax(logits):
     return np.exp(logits) / np.sum(np.exp(logits), axis=-1, keepdims=True)
 
 
-def _ground_truth_calculation(
-    discounts,
-    log_rhos,
-    rewards,
-    values,
-    bootstrap_value,
-    clip_rho_threshold,
-    clip_pg_rho_threshold,
-):
+def _ground_truth_calculation(discounts,
+                              log_rhos,
+                              rewards,
+                              values,
+                              bootstrap_value,
+                              clip_rho_threshold,
+                              clip_pg_rho_threshold,
+                              ):
     """Calculates the ground truth for V-trace in Python/Numpy."""
     vs = []
     seq_len = len(discounts)
@@ -93,7 +93,7 @@ def _ground_truth_calculation(
         - values
     )
 
-    return vtrace.VTraceReturns(vs=vs, pg_advantages=pg_advantages)
+    return vtrace._VTraceReturns(vs=vs, pg_advantages=pg_advantages)
 
 
 def assert_allclose(actual, desired):
@@ -109,7 +109,7 @@ def test_action_log_probs(batch_size=2):
         0, num_actions, size=(seq_len, batch_size), dtype=np.int64
     )
 
-    action_log_probs_tensor = vtrace.action_log_probs(
+    action_log_probs_tensor = vtrace._action_log_probs(
         torch.from_numpy(policy_logits), torch.from_numpy(actions)
     )
 
@@ -158,9 +158,10 @@ def test_vtrace(batch_size=5):
     }
 
     ground_truth = _ground_truth_calculation(**values)
-    
-    values = {key: torch.tensor(value) for key, value in values.items()}    # pylint: disable=not-callable
-    output = vtrace.from_importance_weights(**values)
+
+    # pylint: disable=not-callable
+    values = {key: torch.tensor(value) for key, value in values.items()}
+    output = vtrace._from_importance_weights(**values)
 
     for a, b in zip(ground_truth, output):
         assert_allclose(a, b)
@@ -200,16 +201,16 @@ def test_vtrace_from_logits(batch_size=2):
         **values,
     )
 
-    target_log_probs = vtrace.action_log_probs(
+    target_log_probs = vtrace._action_log_probs(
         values["target_policy_logits"], values["actions"]
     )
-    behavior_log_probs = vtrace.action_log_probs(
+    behavior_log_probs = vtrace._action_log_probs(
         values["behavior_policy_logits"], values["actions"]
     )
     log_rhos = target_log_probs - behavior_log_probs
 
     # Calculate V-trace using the ground truth logits.
-    from_iw = vtrace.from_importance_weights(
+    from_iw = vtrace._from_importance_weights(
         log_rhos=log_rhos,
         discounts=values["discounts"],
         rewards=values["rewards"],
@@ -228,8 +229,10 @@ def test_vtrace_from_logits(batch_size=2):
                     from_logits_output.target_action_log_probs)
     assert_allclose(log_rhos, from_logits_output.log_rhos)
 
+
 def test_vtrace_from_logits_batch_1():
     test_vtrace_from_logits(1)
+
 
 def test_higher_rank_inputs_for_importance_weights():
     """Checks support for additional dimensions in inputs."""
@@ -242,5 +245,5 @@ def test_higher_rank_inputs_for_importance_weights():
         "values": torch.zeros(T, B, 42),
         "bootstrap_value": torch.zeros(B, 42),
     }
-    output = vtrace.from_importance_weights(**values)
+    output = vtrace._from_importance_weights(**values)
     assert output.vs.shape == (T, B, 42)
