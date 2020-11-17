@@ -37,16 +37,17 @@ master_doc = 'index'
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
-    'sphinx.ext.doctest',
+    # 'sphinx.ext.doctest',
     # 'sphinx.ext.todo',
     'sphinx.ext.coverage',
-    'sphinx.ext.imgmath',
-    'sphinx.ext.ifconfig',
+    # 'sphinx.ext.imgmath',
+    # 'sphinx.ext.ifconfig',
     'sphinx.ext.autosummary',
-    'sphinx.ext.githubpages',
+    # 'sphinx.ext.githubpages',
     'sphinx.ext.intersphinx',
     'sphinx.ext.napoleon',
     'sphinx.ext.viewcode',
+    'sphinx_rtd_theme',
 ]
 
 # Intersphinx Mapping
@@ -95,13 +96,14 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 #
 html_theme = 'sphinx_rtd_theme'
 
-# html_theme_options = {
-#     # Toc options
-#     'collapse_navigation': False,
-#     'navigation_depth': 4,
-# }
+html_theme_options = {
+    'collapse_navigation': False,
+    'sticky_navigation': False,
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+html_show_sourcelink = True
