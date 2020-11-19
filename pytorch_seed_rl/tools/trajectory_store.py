@@ -85,7 +85,7 @@ class TrajectoryStore():
             "complete": torch.tensor(False, device=self.device),
             "current_length": torch.tensor(0, device=self.device),
             "states": self._new_states(),
-            "metrics": []
+            "metrics": list()
         }
 
         self.trajectory_counter += 1
@@ -115,7 +115,7 @@ class TrajectoryStore():
 
         trajectory['global_trajectory_id'].fill_(self.trajectory_counter)
         trajectory['current_length'].fill_(0)
-        trajectory['metrics'] = []
+        trajectory['metrics'] = list()
         self._reset_states(trajectory['states'])
 
         if trajectory['complete']:
@@ -159,8 +159,8 @@ class TrajectoryStore():
         states = trajectory['states']
 
         # all metrics keys must be known to store, if trajectory already has valid data
-        if trajectory['current_length'] > 0:
-            assert metrics.keys() == trajectory["metrics"][0].keys()
+        if len(trajectory["metrics"]) > 0:
+            assert metrics.keys() == trajectory["metrics"][0].keys(), list(metrics.keys())
 
         # transform shape
         state = {k: v.view(self.zero_obs[k].shape)

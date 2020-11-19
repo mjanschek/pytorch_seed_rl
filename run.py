@@ -27,9 +27,12 @@ from pytorch_seed_rl.environments import EnvSpawner
 from pytorch_seed_rl.nets import AtariNet
 #from pytorch_seed_rl.model import Model
 
+# Necessary for multithreading.
+os.environ["OMP_NUM_THREADS"] = "1"
+
 ENV_ID = 'BreakoutNoFrameskip-v4'
 ENV_SHORT = 'Breakout'
-NUM_ENVS = 16
+NUM_ENVS = 32
 
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
@@ -71,7 +74,7 @@ ROLLOUT = 64
 LEARNING_RATE = 0.0006
 
 NUM_LEARNERS = 1
-NUM_ACTORS = 4
+NUM_ACTORS = 6
 CSV_FILE = './csv/'
 
 USE_LSTM = False
