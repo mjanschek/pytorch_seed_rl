@@ -58,7 +58,6 @@ class TrajectoryStore():
                  keys: List[Union[int, str]],
                  zero_obs: dict,
                  device: torch.device,
-                 drop_off_queue,
                  max_trajectory_length: int = 128,
                  max_drop_off: int = 1024):
         # ATTRIBUTES
@@ -76,10 +75,9 @@ class TrajectoryStore():
         self.locks_trajectories = {k: Lock() for k in keys}
 
         #
-        # self.drop_off_queue = deque(
-        #     maxlen=max_drop_off
-        # )
-        self.drop_off_queue = drop_off_queue
+        self.drop_off_queue = deque(
+            maxlen=max_drop_off
+        )
 
     def _new_trajectory(self) -> dict:
         """Returns a new, empty trajectory.

@@ -17,7 +17,6 @@ import gc
 import time
 from abc import abstractmethod
 from collections import deque
-from threading import Thread
 from typing import List, Union
 
 import torch.multiprocessing as mp
@@ -60,8 +59,7 @@ class RpcCallee():
                  caller_class: object = None,
                  caller_args=None,
                  future_keys: list = [None],
-                 rpc_batchsize: int = 4,
-                 num_threads_process:int = 1):
+                 rpc_batchsize: int = 4):
 
         # ASSERTIONS
         assert num_callees > 0
@@ -85,7 +83,6 @@ class RpcCallee():
         self.name = rpc.get_worker_info().name
         self.rref = RRef(self)
         self.lock_batching = mp.Lock()
-        self.lock_process = mp.Lock()
         self.shutdown = False
         self.t_start = 0.
 
@@ -99,10 +96,6 @@ class RpcCallee():
         # spawn actors
         self._spawn_callers(caller_class, num_callees,
                             num_callers, *caller_args)
-
-        self._process_threads = [Thread(target=self._process_batch,
-                                        name='_process_thread_%i' % i)
-                                 for i in range(num_threads_process)]
 
     def _spawn_callers(self,
                        caller_class: object,
@@ -136,9 +129,6 @@ class RpcCallee():
         """Calls :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop` method
         of all callers in :py:attr:`self.caller_rrefs`.
         """
-        for t in self._process_threads:
-            t.start()
-
         for c in self.caller_rrefs:
             c.remote().loop()
         print("Caller loops started.")
@@ -151,11 +141,10 @@ class RpcCallee():
         """
         self.t_start = time.time()
 
-        print("Waiting for start of main loop...")
+        print("Loop started. You can interupt using strg+c.")
         while not (self.shutdown):
             self._loop()
 
-        self.runtime = self._get_runtime()
         self.shutdown = True
         self._cleanup()
 
@@ -188,48 +177,40 @@ class RpcCallee():
         with self.lock_batching:
             self.pending_rpcs.append((caller_id, *args, kwargs))
 
-            #
-            # if len(self.pending_rpcs) >= self.rpc_batchsize:
+            # if self.rpc_batchsize is reached, pop pending RPCs and start self._process()
+            if len(self.pending_rpcs) >= self.rpc_batchsize:
+                process_rpcs = [self.pending_rpcs.popleft()
+                                for _ in range(self.rpc_batchsize)]
 
-            #     t = Thread(target=self._process_batch, args=(process_rpcs,))
-            #     t.start()
-            # self._process_batch(process_rpcs)
+                self._process_batch(process_rpcs)
 
         return f_answer
 
-    def _process_batch(self):
-        """Waits on a number of pending RPCs, prepares batched data held by :py:attr:`pending_rpcs` and
+    def _process_batch(self, pending_rpcs: List[tuple]):
+        """Prepares batched data held by :py:attr:`pending_rpcs` and
         invokes :py:meth:`process_batch()` on this data.
-
         Sets :py:class:`Future` with according results.
+
+        Parameters
+        ----------
+        pending_rpcs: `list[tuple]`
+            List of tuples that hold data from RPCs.
         """
-        while not self.shutdown:
 
-            with self.lock_process:
-                # wait on self.rpc_batchsize being reached
-                if len(self.pending_rpcs) >= self.rpc_batchsize:
+        caller_ids, *args, kwargs = zip(*pending_rpcs)
+        args = [listdict_to_dictlist(b) for b in args]
+        kwargs = listdict_to_dictlist(kwargs)
 
-                    # pop pending RPCs and start processing
-                    pending_rpcs = [self.pending_rpcs.popleft()
-                                    for _ in range(self.rpc_batchsize)]
+        process_output = self.process_batch(caller_ids, *args, **kwargs)
 
-                    caller_ids, *args, kwargs = zip(*pending_rpcs)
-                    args = [listdict_to_dictlist(b) for b in args]
-                    kwargs = listdict_to_dictlist(kwargs)
-
-                    process_output = self.process_batch(
-                        caller_ids, *args, **kwargs)
-
-                    for caller_id, result in process_output.items():
-                        f_answers = self.future_answers[caller_id]
-                        self.future_answers[caller_id] = Future()
-                        f_answers.set_result((result,
-                                              self.shutdown,
-                                              caller_id,
-                                              dict()
-                                              ))
-
-            time.sleep(0.001)
+        for caller_id, result in process_output.items():
+            f_answers = self.future_answers[caller_id]
+            self.future_answers[caller_id] = Future()
+            f_answers.set_result((result,
+                                  self.shutdown,
+                                  caller_id,
+                                  dict()
+                                  ))
 
     def _get_runtime(self) -> float:
         """Returns current runtime in seconds.
@@ -280,22 +261,14 @@ class RpcCallee():
 
         Should invoke super() method, if implemented by child class.
         """
-        for t in self._process_threads:
-            t.join()
-        print("Process threads joined.")
-
         # Answer pending rpcs to enable actors to terminate
+        print("Answering pending RPCs")
         self._answer_rpcs()
-        print("Pending RPCs answered")
-
-        # Run garbage collection to ensure freeing of resources.
-        # gc.collect()
 
     def _answer_rpcs(self):
         """Answers all pending RPCs if their caller is not inactive, yet.
         """
-        while len(self.active_callers) > 0:
-
+        while len(self.pending_rpcs) > 0:
             try:
                 rpc_tuple = self.pending_rpcs.popleft()
             except IndexError:
@@ -306,6 +279,13 @@ class RpcCallee():
 
             # return answer=None, shutdown=True, answer_id=caller_id, empty dict
             self.future_answers[caller_id].set_result((None,
-                                                       True,
-                                                       caller_id,
-                                                       dict()))
+                                                        True,
+                                                        caller_id,
+                                                        dict()))
+            print(self.active_callers, "answered,",
+                  self.active_callers, "left.")
+
+    def set_shutdown(self):
+        """Sets `shutdown` True.
+        """
+        self.shutdown = True
