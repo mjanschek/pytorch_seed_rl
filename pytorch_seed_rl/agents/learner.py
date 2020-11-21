@@ -16,6 +16,7 @@
 import copy
 import gc
 import pprint
+import queue
 import time
 from threading import Thread
 from collections import deque
@@ -101,7 +102,10 @@ class Learner(RpcCallee):
                  max_steps: int = -1,
                  max_time: int = -1,
                  save_path: str = ".",
-                 exp_name: str = ""):
+                 exp_name: str = "",
+                 num_threads_inference: int = 1,
+                 num_threads_prefetching: int = 1,
+                 num_threads_storing: int = 1,):
 
         self.total_num_envs = num_actors*env_spawner.num_envs
         self.envs_list = [i for i in range(self.total_num_envs)]
@@ -112,7 +116,8 @@ class Learner(RpcCallee):
                          caller_class=agents.Actor,
                          caller_args=[env_spawner],
                          future_keys=self.envs_list,
-                         rpc_batchsize=inference_batchsize)
+                         rpc_batchsize=inference_batchsize,
+                         num_threads_process=num_threads_inference)
 
         # ATTRIBUTES
         self.rollout_length = rollout_length
@@ -128,8 +133,12 @@ class Learner(RpcCallee):
         self.exp_name = exp_name
 
         # storage
-        self.training_batch_queue = deque()
         self.states_to_store = {}
+
+        # queues
+        self.queue_batches = deque()
+        self.queue_trajectories = deque()
+        self.queue_states = deque()
 
         # counters
         self.inference_epoch = 0
@@ -174,12 +183,14 @@ class Learner(RpcCallee):
         self.event_start_processing = mp.Event()
         self.lock_model = mp.Lock()
         self.lock_training = mp.Lock()
+        self.lock_states = mp.Lock()
 
         # spawn trajectory store
         placeholder_eval_obs = self._build_placeholder_eval_obs(env_spawner)
         self.trajectory_store = TrajectoryStore(self.envs_list,
                                                 placeholder_eval_obs,
                                                 self.device,
+                                                self.queue_trajectories,
                                                 max_trajectory_length=rollout_length)
 
         # spawn logger
@@ -188,17 +199,27 @@ class Learner(RpcCallee):
                              modes=['csv'])
 
         # create prefetch thread
-        self._prefetch_thread = Thread(target=self.prefetch,
-                                       name='_prefetch_thread')
-        self._learn_threads = [Thread(target=self.learn,
-                                      name='_learn_thread_%i' % i)
-                               for i in range(4)]
+        self._prefetch_threads = [Thread(target=self.prefetch,
+                                         name='_prefetch_thread_%i' % i) for i in range(num_threads_prefetching)]
+
+        self._storing_threads = [Thread(target=self.add_to_store,
+                                        name='_storing_thread_%i' % i) for i in range(num_threads_storing)]
+
+        # self._prefetch_thread = self.rref.remote().prefetch()
+        # self._prefetch_threads = [self.rref.remote().prefetch() for _ in range(2)]
+        # self._learn_threads = [Thread(target=self.learn,
+        #                               name='_learn_thread_%i' % i)
+        #                        for i in range(4)]
 
         # start callers and prefetch thread
         self._start_callers()
-        self._prefetch_thread.start()
-        for t in self._learn_threads:
+        for t in self._prefetch_threads:
             t.start()
+        for t in self._storing_threads:
+            t.start()
+        # self._prefetch_thread.start()
+        # for t in self._learn_threads:
+        #     t.start()
 
     def _loop(self):
         """Inner loop function of a :py:class:`Learner`.
@@ -222,7 +243,9 @@ class Learner(RpcCallee):
         # # copy parameters from training to inference model
         # self.eval_model.load_state_dict(self.model.state_dict())
 
-        time.sleep(5)
+        # time.sleep(5)
+        self.learn()
+        time.sleep(0.01)
 
         system_metrics = {
             "runtime": self._get_runtime(),
@@ -231,7 +254,9 @@ class Learner(RpcCallee):
             "inference_steps": self.inference_steps,
             "training_time": self.training_time,
             "training_steps": self.training_steps,
-            "drop_off_queuesize": len(self.trajectory_store.drop_off_queue),
+            "queue_batches": len(self.queue_batches),
+            "queue_states": len(self.queue_states),
+            "queue_trajectories": len(self.queue_trajectories),
             "pending_rpcs": len(self.pending_rpcs)
         }
 
@@ -245,21 +270,38 @@ class Learner(RpcCallee):
                          (self.training_time > self.max_time > 0))
 
     def learn(self):
-        while not self.shutdown:
-            with self.lock_training:
-                if len(self.training_batch_queue) > 0:
+        # while not self.shutdown:
+        try:
+            batch = self.queue_batches.popleft()
+        except IndexError:
+            return
+        with self.lock_training:
 
-                    start = time.time()
-                    training_metrics = self._learn_from_batch(
-                        self.training_batch_queue.popleft())
-                    self.training_time += time.time()-start
+            start = time.time()
+            training_metrics = self._learn_from_batch(batch)
+            self.training_time += time.time()-start
 
-                    # copy parameters from training to inference model
-                    self.eval_model.load_state_dict(self.model.state_dict())
+            # copy parameters from training to inference model
+            self.eval_model.load_state_dict(self.model.state_dict())
 
-                    self.logger.log('training', training_metrics)
+            self.logger.log('training', training_metrics)
 
-            time.sleep(0.001)
+    # def learn(self):
+    #     while not self.shutdown:
+    #         with self.lock_training:
+    #             if len(self.training_batch_queue) > 0:
+
+    #                 start = time.time()
+    #                 training_metrics = self._learn_from_batch(
+    #                     self.training_batch_queue.popleft())
+    #                 self.training_time += time.time()-start
+
+    #                 # copy parameters from training to inference model
+    #                 self.eval_model.load_state_dict(self.model.state_dict())
+
+    #                 self.logger.log('training', training_metrics)
+
+    #         time.sleep(0.001)
 
     @staticmethod
     def _build_placeholder_eval_obs(env_spawner: EnvSpawner) -> Dict[str, torch.Tensor]:
@@ -316,7 +358,10 @@ class Learner(RpcCallee):
         # self.states_to_store
         states = {k: v.detach()
                   for k, v in {**states, **inference_output}.items()}
-        self.add_to_store(states, caller_ids, misc['metrics'])
+
+        self.queue_states.append((states, caller_ids, misc['metrics']))
+
+        # self.add_to_store(states, caller_ids, misc['metrics'])
 
         # gather an return results
         results = {c: inference_output['action'][0][i].view(
@@ -324,10 +369,7 @@ class Learner(RpcCallee):
 
         return results
 
-    def add_to_store(self,
-                     states,
-                     caller_ids: List[Union[int, str]],
-                     all_metrics: dict):
+    def add_to_store(self):
         """Sends states within :py:attr:`self.states_to_store` and metrics to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` according to :py:attr:`caller_ids`.
 
         Parameters
@@ -340,22 +382,56 @@ class Learner(RpcCallee):
             Recorded metrics of these states (primarily recorded in :py:class:`~pytorch_seed_rl.agents.actor.Actor`.)
         """
         # pylint: disable=not-callable
-        timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
+        while not self.shutdown:
+            with self.lock_states:
+                if len(self.queue_states) > 0:
+                    states, caller_ids, all_metrics = self.queue_states.popleft()
+                else:
+                    time.sleep(0.1)
+                    continue
 
-        # states = self.states_to_store
+            timestamp = torch.tensor(
+                time.time(), dtype=torch.float64).view(1, 1)
 
-        latencies = []
+            for i, zipped_caller_id_metrics in enumerate(list(zip(caller_ids, all_metrics))):
+                caller_id, metrics = zipped_caller_id_metrics
+                state = {k: v[0, i] for k, v in states.items()}
+                metrics['timestamp'] = timestamp.clone()
+                self.trajectory_store.add_to_entry(
+                    caller_id, state, metrics)
 
-        # extract single states and send to trajectory store
-        for i, zipped_caller_id_metrics in enumerate(list(zip(caller_ids, all_metrics))):
-            caller_id, metrics = zipped_caller_id_metrics
+    # def add_to_store(self,
+    #                  states,
+    #                  caller_ids: List[Union[int, str]],
+    #                  all_metrics: dict):
+    #     """Sends states within :py:attr:`self.states_to_store` and metrics to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` according to :py:attr:`caller_ids`.
 
-            state = {k: v[0, i] for k, v in states.items()}
+    #     Parameters
+    #     ----------
+    #     states: dict
+    #         The states extended by the inference output.
+    #     caller_ids : `list[int]` or `list[str]`
+    #         List of unique identifiers for callers.
+    #     all_metrics : `dict`
+    #         Recorded metrics of these states (primarily recorded in :py:class:`~pytorch_seed_rl.agents.actor.Actor`.)
+    #     """
+    #     # pylint: disable=not-callable
+    #     timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
 
-            latencies.append(metrics['latency'])
-            metrics['timestamp'] = timestamp.clone()
+    #     # states = self.states_to_store
 
-            self.trajectory_store.add_to_entry(caller_id, state, metrics)
+    #     latencies = []
+
+    #     # extract single states and send to trajectory store
+    #     for i, zipped_caller_id_metrics in enumerate(list(zip(caller_ids, all_metrics))):
+    #         caller_id, metrics = zipped_caller_id_metrics
+
+    #         state = {k: v[0, i] for k, v in states.items()}
+
+    #         latencies.append(metrics['latency'])
+    #         metrics['timestamp'] = timestamp.clone()
+
+    #         self.trajectory_store.add_to_entry(caller_id, state, metrics)
 
     def _learn_from_batch(self,
                           batch: Dict[str, torch.Tensor],
@@ -483,7 +559,7 @@ class Learner(RpcCallee):
 
         return pg_loss, baseline_loss, entropy_loss
 
-    def prefetch(self, waiting_time=0.1):
+    def prefetch(self, timeout=1):
         """Continuously prefetches complete trajectories dropped by the :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` for training.
 
         As long as shutdown is not set, this method checks,
@@ -498,26 +574,61 @@ class Learner(RpcCallee):
         waiting_time: `float`
             Time the methods loop sleeps between each iteration.
         """
-
         while not self.shutdown:
-
-            if len(self.trajectory_store.drop_off_queue) >= self.training_batchsize:
-                start = time.time()
-                trajectories = []
-                for _ in range(self.training_batchsize):
-                    t = self.trajectory_store.drop_off_queue.popleft()
+            trajectories = []
+            tries = 0
+            while len(trajectories) < self.training_batchsize and tries < 10 and not self.shutdown:
+                if len(self.queue_trajectories) > 0:
+                    t = self.queue_trajectories.popleft()
                     self._log_trajectory(t)
                     trajectories.append(t)
+                else:
+                    tries += 1
+                    time.sleep(timeout)
+                    if tries == 10:
+                        print(
+                            "Maximum tries reached in prefetching, incomplete batch in queue!")
+                    continue
 
+            if len(trajectories) > 0:
                 batch = self._to_batch(trajectories)
+                self.queue_batches.append(batch)
 
-                self.training_batch_queue.append(batch)
-                self.event_start_training.set()  # next training
+    # def prefetch(self, waiting_time=0.1):
+    #     """Continuously prefetches complete trajectories dropped by the :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` for training.
 
-                # update stats
-                self.fetching_time += time.time() - start
+    #     As long as shutdown is not set, this method checks,
+    #     if :py:attr:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore.drop_off_queue`
+    #     has at least :py:attr:`self.training_batchsize` elements.
+    #     If so, these trajectories are popped from this queue, logged, transformed and queued in :py:attr:`self.training_batch_queue`.
 
-            time.sleep(waiting_time)
+    #     This usually runs as asynchronous process.
+
+    #     Parameters
+    #     ----------
+    #     waiting_time: `float`
+    #         Time the methods loop sleeps between each iteration.
+    #     """
+
+    #     while not self.shutdown:
+
+    #         if len(self.trajectory_store.drop_off_queue) >= self.training_batchsize:
+    #             start = time.time()
+    #             trajectories = []
+    #             for _ in range(self.training_batchsize):
+    #                 t = self.trajectory_store.drop_off_queue.popleft()
+    #                 self._log_trajectory(t)
+    #                 trajectories.append(t)
+
+    #             batch = self._to_batch(trajectories)
+
+    #             self.training_batch_queue.append(batch)
+    #             self.event_start_training.set()  # next training
+
+    #             # update stats
+    #             self.fetching_time += time.time() - start
+
+    #         time.sleep(waiting_time)
 
     def _log_trajectory(self, trajectory: dict):
         """Extracts and logs episode data from a completed trajectory.
@@ -549,7 +660,8 @@ class Learner(RpcCallee):
             }
             self.logger.log('episodes', episode_data)
 
-    def _to_batch(self, trajectories: List[dict]):
+    @staticmethod
+    def _to_batch(trajectories: List[dict]):
         """Extracts states from a list of trajectories, returns them as batch
 
         Parameters
@@ -572,19 +684,27 @@ class Learner(RpcCallee):
 
         Overwrites and calls :py:meth:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee._cleanup()`.
         """
+
         super()._cleanup()
 
         # write last buffers
         self.logger.write_buffers()
 
         # Waiting on _learn_threads to join
-        for t in self._learn_threads:
-            t.join()
-        print("Learner threads joined")
+        # for t in self._learn_threads:
+        #     t.join()
+        # print("Learner thread joined")
 
         # Waiting on _prefetch_thread to join
-        self._prefetch_thread.join()
-        print("Prefetch thread joined")
+        # self._prefetch_thread.join()
+        # self._prefetch_thread.to_here(10)
+        for t in self._prefetch_threads:
+            t.join()
+        print("Prefetch threads joined")
+
+        for t in self._storing_threads:
+            t.join()
+        print("Storing threads joined")
 
         # Run garbage collection to ensure freeing of resources.
         gc.collect()
@@ -594,18 +714,17 @@ class Learner(RpcCallee):
     def report(self):
         """Reports data to CLI
         """
-        runttime = self._get_runtime()
-        if runttime > 0:
+        if self.runtime > 0:
             print("\n============== REPORT ==============")
-            fps = self.inference_steps / runttime
+            fps = self.inference_steps / self.runtime
 
             print("infered", str(self.inference_steps), "steps")
-            print("in", str(runttime), "seconds")
+            print("in", str(self.runtime), "seconds")
             print("==>", str(fps), "fps")
 
-            fps = self.training_steps / runttime
+            fps = self.training_steps / self.runtime
             print("trained", str(self.training_steps), "steps")
-            print("in", str(runttime), "seconds")
+            print("in", str(self.runtime), "seconds")
             print("==>", str(fps), "fps")
 
             print("Total inference_time:", str(

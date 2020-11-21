@@ -60,7 +60,8 @@ class RpcCallee():
                  caller_class: object = None,
                  caller_args=None,
                  future_keys: list = [None],
-                 rpc_batchsize: int = 4):
+                 rpc_batchsize: int = 4,
+                 num_threads_process:int = 1):
 
         # ASSERTIONS
         assert num_callees > 0
@@ -101,7 +102,7 @@ class RpcCallee():
 
         self._process_threads = [Thread(target=self._process_batch,
                                         name='_process_thread_%i' % i)
-                                 for i in range(2)]
+                                 for i in range(num_threads_process)]
 
     def _spawn_callers(self,
                        caller_class: object,
@@ -154,6 +155,7 @@ class RpcCallee():
         while not (self.shutdown):
             self._loop()
 
+        self.runtime = self._get_runtime()
         self.shutdown = True
         self._cleanup()
 

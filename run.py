@@ -34,9 +34,13 @@ ENV_ID = 'BreakoutNoFrameskip-v4'
 ENV_SHORT = 'Breakout'
 NUM_ENVS = 32
 
+NUM_THREADS_INFERENCE = 1
+NUM_THREADS_PREFETCHING = 1
+NUM_THREADS_STORING = 4
+
 LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
-TOTAL_EPISODE_STEP = 50000
+TOTAL_EPISODE_STEP = 200000
 
 # torchbeast settings
 # SETTINGS_NAME = '_torchbeast'
@@ -74,7 +78,7 @@ ROLLOUT = 64
 LEARNING_RATE = 0.0006
 
 NUM_LEARNERS = 1
-NUM_ACTORS = 6
+NUM_ACTORS = 4
 CSV_FILE = './csv/'
 
 USE_LSTM = False
@@ -109,6 +113,9 @@ def run_threads(rank, world_size, env_spawner, model, optimizer):
                                           'inference_batchsize': BATCHSIZE_INF,
                                           'training_batchsize': BATCHSIZE_TRAIN,
                                           'rollout_length': ROLLOUT,
+                                          'num_threads_inference':  NUM_THREADS_INFERENCE,
+                                          'num_threads_prefetching':  NUM_THREADS_PREFETCHING,
+                                          'num_threads_storing':  NUM_THREADS_STORING,
                                           })
 
         training_rref = learner_rref.remote().loop()
