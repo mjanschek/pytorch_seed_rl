@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Partly taken from https://stackoverflow.com/questions/5558418/list-of-dicts-to-from-dict-of-lists
 
 """Collection of minor utility/qol functions
 """
@@ -35,8 +33,6 @@ def listdict_to_dictlist(listdict: List[dict]) -> Dict[str, list]:
                                               for dicts in listdict)
                                              ))
           }
-
-    # return {k: [dic[k] for dic in listdict] for k in listdict[0]}
 
 
 def dictlist_to_listdict(dictlist: Dict[str, list]) -> List[dict]:
