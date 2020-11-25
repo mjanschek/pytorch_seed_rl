@@ -105,7 +105,7 @@ class Learner(RpcCallee):
                  rollout_length: int = 80,
                  max_epoch: int = -1,
                  max_time: float = -1.,
-                 num_prefetcher: int = 1,
+                 num_prefetchers: int = 1,
                  verbose: bool = False,
                  print_interval: int = 10):
 
@@ -193,7 +193,7 @@ class Learner(RpcCallee):
 
         # start prefetch thread as remote rpc
         self.prefetch_threads = [self.rref.remote().prefetch()
-                                 for _ in range(num_prefetcher)]
+                                 for _ in range(num_prefetchers)]
 
         self.dead_counter = 0
         self.queue_batches_old = len(self.training_batch_queue)

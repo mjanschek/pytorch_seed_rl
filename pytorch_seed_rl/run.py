@@ -38,12 +38,14 @@ parser.add_argument('-R', '--reset',
 parser.add_argument('-v', '--verbose',
                     help='Prints system metrics to command line. Set --print_interval for number of training epochs between prints.',
                     action='store_true')
+parser.add_argument('--gpu_ids', default = "", type = str,
+                    help='A comma-separated list of cuda ids this program is permitted to use.')
 parser.add_argument('--print_interval', default=10, type=int,
                     help='Number of training epochs between prints.')
 parser.add_argument("--savedir", default=os.path.join(os.environ.get("HOME"),
                                                       'logs',
-                                                      'pytorch_seed_rl'),
-                    help="Root dir where experiment data will be saved.")
+                                                      'pytorch_seed_rl'), 
+                    type = str, help="Root dir where experiment data will be saved.")
 
 # General training settings
 parser.add_argument("--total_steps", default=100000, type=int,
@@ -77,7 +79,7 @@ parser.add_argument("--master_port", default='29500', type=str,
                     "WARNING: CHANGE WITH CAUTION!")
 parser.add_argument("--num_actors", default=2, type=int,
                     help="Number of actors.")
-parser.add_argument("--num_prefetcher", default=1, type=int,
+parser.add_argument("--num_prefetchers", default=1, type=int,
                     help="Number of prefetch processes.")
 parser.add_argument('--tensorpipe',
                     help='Uses the default RPC backend of pytorch, Tensorpipe.',
@@ -180,7 +182,7 @@ def run_threads(rank,
                                           'rollout_length': flags.rollout,
                                           'max_epoch': flags.max_epoch,
                                           'max_time': flags.max_time,
-                                          'num_prefetcher': flags.num_prefetcher,
+                                          'num_prefetchers': flags.num_prefetchers,
                                           'verbose': flags.verbose,
                                           'print_interval': flags.print_interval,
                                           })
@@ -269,4 +271,6 @@ def main(flags):
 
 if __name__ == '__main__':
     FLAGS = parser.parse_args()
+    if FLAGS.gpu_ids != "":
+        os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_ids
     main(FLAGS)
