@@ -284,8 +284,6 @@ class RpcCallee():
                                                        True,
                                                        caller_id,
                                                        dict()))
-            print(self.active_callers, "answered,",
-                  self.active_callers, "left.")
 
     def set_shutdown(self):
         """Sets `shutdown` True.

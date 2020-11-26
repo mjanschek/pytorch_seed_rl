@@ -23,7 +23,7 @@ from typing import List, Union
 import torch
 from torch.multiprocessing import Lock
 
-from .functions import listdict_to_dictlist
+from .functions import listdict_to_dictlist, dict_to_device
 
 
 class TrajectoryStore():
@@ -66,7 +66,6 @@ class TrajectoryStore():
         # ATTRIBUTES
         self.max_trajectory_length = max_trajectory_length
         self.device = device
-        self.metric_keys = ['latency']
         self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}
 
         # Counters
@@ -167,7 +166,9 @@ class TrajectoryStore():
             states = trajectory['states']
 
             # all metrics keys must be known to store, if trajectory already has valid data
-            metrics = {k: v.to(self.device) for k, v in metrics.items()}
+            # metrics = {k: v.to(self.device) for k, v in metrics.items()}
+
+            dict_to_device(metrics, self.device)
             if current_length == 0:
                 trajectory["metrics"] = [metrics]
             else:
@@ -194,7 +195,8 @@ class TrajectoryStore():
 
     def _drop(self,
               trajectory: dict,
-              waiting_time: float = 0.1):
+              waiting_time: float = 0.1,
+              max_tries: int = 50):
         """Copies a trajectory and drops the copy on :py:attr:`self.drop_off_queue`.
 
         The original trajectory will be reset in place to keep its memory allocated.
@@ -206,10 +208,22 @@ class TrajectoryStore():
         waiting_time: `float`
             The time in seconds this method waits between checks,
             if :py:attr:`self.drop_off_queue` is still full.
+        max_tries: `int`
+            The maximum number of tries the method shall undertake,
+            if :py:attr:`self.drop_off_queue` is full
         """
         trajectory["metrics"] = listdict_to_dictlist(trajectory["metrics"])
 
         for k, v in trajectory["metrics"].items():
-            trajectory["metrics"][k] = torch.cat(v)
+            if isinstance(v[0], torch.Tensor):
+                trajectory["metrics"][k] = torch.cat(v)
 
-        self.drop_off_queue.append(trajectory)
+        counter = 0
+        if len(self.drop_off_queue) < self.drop_off_queue.maxlen:
+            self.drop_off_queue.append(trajectory)
+        elif counter < max_tries:
+            counter += 1
+            time.sleep(waiting_time)
+        else:
+            # essentially drop this trajectory
+            return

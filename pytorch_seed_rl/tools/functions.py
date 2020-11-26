@@ -17,6 +17,8 @@
 import functools
 from typing import Dict, List
 
+import torch
+
 
 def listdict_to_dictlist(listdict: List[dict]) -> Dict[str, list]:
     """Transforms a list of dictionaries into a dictionary of lists.
@@ -26,12 +28,13 @@ def listdict_to_dictlist(listdict: List[dict]) -> Dict[str, list]:
     listdict: 'list' of 'dict'
         A list of dictionaries
     """
-    return {key: [item[key] for item in listdict]
-            for key in list(functools.reduce(lambda x, y: x.union(y),
-                                             (set(dicts.keys())
-                                              for dicts in listdict)
-                                             ))
-            }
+    # return {key: [item[key] for item in listdict]
+    #         for key in list(functools.reduce(lambda x, y: x.union(y),
+    #                                          (set(dicts.keys())
+    #                                           for dicts in listdict)
+    #                                          ))
+    #         }
+    return {key: [item[key] for item in listdict] for key in listdict[0].keys()}
 
 
 def dictlist_to_listdict(dictlist: Dict[str, list]) -> List[dict]:
@@ -43,3 +46,14 @@ def dictlist_to_listdict(dictlist: Dict[str, list]) -> List[dict]:
         A dictionary of lists
     """
     return [dict(zip(dictlist, t)) for t in zip(*dictlist.values())]
+
+
+def dict_to_device(in_dict, device):
+    """Moves a whole dictionary to a target torch device.
+
+    Skips dictionary items that are not tensors.
+    """
+
+    for k, v in in_dict.items():
+        if isinstance(v, torch.Tensor):
+            in_dict[k] = v.to(device)

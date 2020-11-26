@@ -47,6 +47,8 @@ parser.add_argument("--savedir", default=os.path.join(os.environ.get("HOME"),
                                                       'logs',
                                                       'pytorch_seed_rl'),
                     type=str, help="Root dir where experiment data will be saved.")
+parser.add_argument('--render',
+                    action='store_true')
 
 # General training settings
 parser.add_argument("--total_steps", default=100000, type=int,
@@ -188,6 +190,7 @@ def _run_threads(rank,
                                           'num_prefetchers': flags.num_prefetchers,
                                           'verbose': flags.verbose,
                                           'print_interval': flags.print_interval,
+                                          'render' : flags.render
                                           })
 
         training_rref = learner_rref.remote().loop()
