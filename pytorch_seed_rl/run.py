@@ -89,7 +89,7 @@ parser.add_argument('--tensorpipe',
                     action='store_true')
 
 # Loss settings.
-parser.add_argument("--entropy_cost", default=0.0006,
+parser.add_argument("--entropy_cost", default=0.01,
                     type=float, help="Entropy cost/multiplier.")
 parser.add_argument("--baseline_cost", default=0.5,
                     type=float, help="Baseline cost/multiplier.")

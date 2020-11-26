@@ -15,12 +15,15 @@
 """
 import copy
 import gc
+import os
 import pprint
 import time
 # import threading
 from collections import deque
 from typing import Dict, List, Tuple, Union
 
+import imageio
+import numpy as np
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
@@ -117,7 +120,8 @@ class Learner(RpcCallee):
                  num_prefetchers: int = 1,
                  verbose: bool = False,
                  print_interval: int = 10,
-                 render: bool = False):
+                 render: bool = False,
+                 max_training_batches: int = 512):
 
         self.total_num_envs = num_actors*env_spawner.num_envs
         self.envs_list = [i for i in range(self.total_num_envs)]
@@ -143,7 +147,9 @@ class Learner(RpcCallee):
         self.print_interval = print_interval
 
         # storage
-        self.training_batch_queue = deque()
+        self.training_batch_queue = deque(
+            maxlen=max_training_batches
+        )
         self.states_to_store = {}
         self.rec_frames = []
 
@@ -161,6 +167,9 @@ class Learner(RpcCallee):
         self.runtime = 0
         self.mean_latency = 0.
         self.episodes_seen = 0
+        self.trajectories_seen = 0
+
+        self.best_return = 0
 
         # torch
         self.device = torch.device(
@@ -487,7 +496,7 @@ class Learner(RpcCallee):
 
         return pg_loss, baseline_loss, entropy_loss
 
-    def prefetch(self, waiting_time=0.1):
+    def prefetch(self, waiting_time=0.1, max_tries=50):
         """Continuously prefetches complete trajectories dropped by
         the :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` for training.
 
@@ -519,7 +528,16 @@ class Learner(RpcCallee):
             if len(trajectories) > 0:
                 batch = self._to_batch(trajectories)
 
+                counter = 0
                 self.training_batch_queue.append(batch)
+                # if len(self.training_batch_queue) < self.training_batch_queue.maxlen:
+                #     self.training_batch_queue.append(batch)
+                # elif counter < max_tries:
+                #     counter += 1
+                #     time.sleep(waiting_time)
+                # else:
+                #     # essentially drop this batch
+                #     return
 
                 # update stats
                 self.fetching_time += time.time() - start
@@ -571,7 +589,8 @@ class Learner(RpcCallee):
             record = True
             self.rec_frames.extend(trajectory['metrics']['frame'])
 
-        if trajectory['complete'].item() is True and trajectory['current_length'] > 1:
+        self.trajectories_seen += 1
+        if trajectory['complete'].item() and trajectory['current_length'] > 1:
             self.episodes_seen += 1
             i = trajectory['current_length']-1
             states = trajectory['states']
@@ -591,14 +610,22 @@ class Learner(RpcCallee):
 
             self.logger.log('episodes', episode_data)
 
-            if record:
-                self.record_episode()
-
-
-    def record_episode(self):
+            if record and states['episode_return'][i] > self.best_return:
+                self.best_return = states['episode_return'][i]
+                print("NEW RECORD! REACHED RETURN:",
+                      str(self.best_return.item()))
+                self.record_episode(str(gei.item()))
+            
+    def record_episode(self, filename):
         """
         """
         print("Record episode with", len(self.rec_frames), "frames")
+
+        directory = "/".join([self.save_path, self.exp_name, 'gif'])
+        os.makedirs(directory, exist_ok=True)
+        imageio.mimsave(directory + '/%s.gif' % filename, [np.array(
+            img) for i, img in enumerate(self.rec_frames) if i % 2 == 0], fps=29)
+
         self.rec_frames = []
 
     def _to_batch(self, trajectories: List[dict]):
@@ -653,6 +680,8 @@ class Learner(RpcCallee):
         """
         return {
             "runtime": self._get_runtime(),
+            "trajectories_seen": self.trajectories_seen,
+            "episodes_seen": self.episodes_seen,
             "mean_inference_latency": self.mean_latency,
             "fetching_time": self.fetching_time,
             "inference_time": self.inference_time,

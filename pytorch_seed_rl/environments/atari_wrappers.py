@@ -90,8 +90,6 @@ def wrap_deepmind(env,
     scale: `bool`
         Applies :py:class:`ScaledFloatFrame`, if True.
     """
-    if episode_life:
-        env = EpisodicLifeEnv(env)
     if 'FIRE' in env.unwrapped.get_action_meanings():
         env = FireResetEnv(env)
     env = WarpFrame(env)
@@ -101,6 +99,8 @@ def wrap_deepmind(env,
         env = ClipRewardEnv(env)
     if frame_stack:
         env = FrameStack(env, 4)
+    if episode_life:
+        env = EpisodicLifeEnv(env)
     return env
 
 
@@ -228,13 +228,21 @@ class DictObservationsEnv(gym.Wrapper):
         initial_last_action = torch.zeros(1, 1, dtype=torch.int64)
         initial_done = torch.zeros(1, 1, dtype=torch.bool)
         initial_frame = self.reset()
-        return dict(frame=initial_frame,
-                    reward=initial_reward,
-                    done=initial_done,
-                    episode_return=self.episode_return,
-                    episode_step=self.episode_step,
-                    last_action=initial_last_action,
-                    )
+
+        obs = dict(frame=initial_frame,
+                   reward=initial_reward,
+                   done=initial_done,
+                   episode_return=self.episode_return,
+                   episode_step=self.episode_step,
+                   last_action=initial_last_action
+                   )
+        try:
+            # pylint: disable=not-callable
+            obs['real_done'] = torch.tensor(
+                self.was_real_done, dtype=torch.bool).view(1, 1)
+        except AttributeError:
+            pass
+        return obs
 
     def step(self, action):
         frame, reward, done, unused_info = self.env.step(action.item())
@@ -249,18 +257,26 @@ class DictObservationsEnv(gym.Wrapper):
         reward = torch.tensor(reward).view(1, 1)
         done = torch.tensor(done).view(1, 1)
 
-        return dict(frame=frame,
-                    reward=reward,
-                    done=done,
-                    episode_return=episode_return,
-                    episode_step=episode_step,
-                    last_action=action,
-                    )
+        obs = dict(frame=frame,
+                   reward=reward,
+                   done=done,
+                   episode_return=episode_return,
+                   episode_step=episode_step,
+                   last_action=action,
+                   )
+        try:
+            # pylint: disable=not-callable
+            obs['real_done'] = torch.tensor(
+                self.was_real_done, dtype=torch.bool).view(1, 1)
+        except AttributeError:
+            pass
 
-    def reset(self):
+        return obs
+
+    def reset(self, **kwargs):
         self.episode_return = torch.zeros(1, 1)
         self.episode_step = torch.zeros(1, 1, dtype=torch.int32)
-        return self.env.reset()
+        return self.env.reset(**kwargs)
 
     def close(self):
         self.env.close()

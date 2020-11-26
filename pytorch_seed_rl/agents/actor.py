@@ -88,8 +88,6 @@ class Actor(RpcCaller):
             if action is None:
                 break
 
-
-
             # pylint: disable=not-callable
             self.metrics[i] = {
                 'latency': tensor(time.time() - send_time).view(1, 1)
