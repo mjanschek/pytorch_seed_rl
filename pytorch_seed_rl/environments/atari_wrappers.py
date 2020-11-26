@@ -24,7 +24,8 @@
 #   https://github.com/facebookresearch/torchbeast/blob/master/torchbeast/atari_wrappers.py
 # and slightly modified (again)
 
-# pylint: disable=missing-module-docstring, missing-class-docstring, missing-function-docstring, too-many-arguments, arguments-differ
+# pylint: disable=missing-module-docstring, missing-class-docstring
+# pylint: missing-function-docstring, too-many-arguments, arguments-differ
 """A collection of wrappers applicable to environments following the OpenAI gym API
 
 See Also
@@ -415,7 +416,8 @@ class MaxAndSkipEnv(gym.Wrapper):
     env: :py:obj:`gym.Env`
         An environment that will be wrapped.
     skip: `int`
-        The number of the returned frame. If `skip` = 4 (default), only every 4th frame will be returned.
+        The number of the returned frame. If `skip` = 4 (default),
+        only every 4th frame will be returned.
     """
 
     def __init__(self,
@@ -563,11 +565,11 @@ class WarpFrame(gym.ObservationWrapper):
         assert original_space.dtype == np.uint8 and len(
             original_space.shape) == 3
 
-    def observation(self, obs):
+    def observation(self, observation):
         if self._key is None:
-            frame = obs
+            frame = observation
         else:
-            frame = obs[self._key]
+            frame = observation[self._key]
 
         if self._grayscale:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -578,8 +580,8 @@ class WarpFrame(gym.ObservationWrapper):
             frame = np.expand_dims(frame, -1)
 
         if self._key is None:
-            obs = frame
+            observation = frame
         else:
-            obs = obs.copy()
-            obs[self._key] = frame
-        return obs
+            observation = observation.copy()
+            observation[self._key] = frame
+        return observation

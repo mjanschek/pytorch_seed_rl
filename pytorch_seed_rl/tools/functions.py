@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Collection of minor utility/qol functions
 """
 
@@ -32,7 +31,7 @@ def listdict_to_dictlist(listdict: List[dict]) -> Dict[str, list]:
                                              (set(dicts.keys())
                                               for dicts in listdict)
                                              ))
-          }
+            }
 
 
 def dictlist_to_listdict(dictlist: Dict[str, list]) -> List[dict]:

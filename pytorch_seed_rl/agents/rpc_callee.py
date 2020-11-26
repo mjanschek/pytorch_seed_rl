@@ -13,7 +13,6 @@
 # limitations under the License.
 """
 """
-import gc
 import time
 from abc import abstractmethod
 from collections import deque
@@ -29,9 +28,11 @@ from ..tools.functions import listdict_to_dictlist
 
 
 class RpcCallee():
-    """RPC object that spawns callers and handles batched rpc calls received from spawned callers.During initiation:
+    """RPC object that spawns callers
+    and handles batched rpc calls received from spawned callers.During initiation:
 
-    * Spawns :py:attr:`num_callers` instances of :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`
+    * Spawns :py:attr:`num_callers` instances of
+      :py:class:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller`
     * Invokes their :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop()` methods.
 
     Parameters
@@ -72,6 +73,7 @@ class RpcCallee():
         assert rpc_batchsize <= len(future_keys)
 
         # callee_rref is correct subclass
+        # use import here to omit circular import
         from ..agents.rpc_caller import RpcCaller
         assert issubclass(caller_class, RpcCaller)
 
@@ -279,9 +281,9 @@ class RpcCallee():
 
             # return answer=None, shutdown=True, answer_id=caller_id, empty dict
             self.future_answers[caller_id].set_result((None,
-                                                        True,
-                                                        caller_id,
-                                                        dict()))
+                                                       True,
+                                                       caller_id,
+                                                       dict()))
             print(self.active_callers, "answered,",
                   self.active_callers, "left.")
 

@@ -34,7 +34,8 @@ def entropy(logits: torch.Tensor) -> torch.Tensor:
 
     See Also
     --------
-    `Entropy Regularization in Reinforcement Learning <https://towardsdatascience.com/entropy-regularization-in-reinforcement-learning-a6fa6d7598df>`__
+    `Entropy Regularization in Reinforcement Learning
+    <https://towardsdatascience.com/entropy-regularization-in-reinforcement-learning-a6fa6d7598df>`__
 
     Parameters
     ----------
@@ -53,7 +54,8 @@ def policy_gradient(logits: torch.Tensor,
 
     See Also
     --------
-    `https://spinningup.openai.com <https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html>`__
+    `https://spinningup.openai.com
+    <https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html>`__
 
     Parameters
     ----------

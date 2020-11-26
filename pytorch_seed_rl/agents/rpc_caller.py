@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """
 """
 from abc import abstractmethod
@@ -34,6 +33,7 @@ class RpcCaller():
     def __init__(self, rank: int, callee_rref: rpc.RRef):
         # ASSERTIONS
         # check for RpcCallee being inherited by callee_rref
+        # use import here to omit circular import
         from ..agents.rpc_callee import RpcCallee
         assert issubclass(callee_rref._get_type(), RpcCallee)
 
@@ -57,7 +57,7 @@ class RpcCaller():
 
         while not self.shutdown:
             self._loop()
-        
+
         self.callee_rref.rpc_sync().check_out(self.rank)
         self._cleanup()
 

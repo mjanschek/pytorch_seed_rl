@@ -13,7 +13,7 @@
 # limitations under the License.
 """
 """
-from typing import List, Tuple
+from typing import List
 
 import gym
 
@@ -21,7 +21,8 @@ from . import atari_wrappers
 
 
 class EnvSpawner():
-    """Class that is given to actor threads to spawn local environments by invoking :py:meth:`spawn()`.
+    """Class that is given to actor threads to spawn local environments
+    by invoking :py:meth:`spawn()`.
 
     An instance of this class exposes :py:meth:`spawn()`.
 
@@ -37,7 +38,8 @@ class EnvSpawner():
     self.env_info: `dict`
         Infos about the spawned environments as dictionary.
     self.placeholder_obs: `dict`
-        A dictionary with the same structure as observations return by the spawned environments :py:meth:`~gym.Env.step()` method.
+        A dictionary with the same structure as observations return by
+        the spawned environments :py:meth:`~gym.Env.step()` method.
     """
 
     def __init__(self,
@@ -54,10 +56,12 @@ class EnvSpawner():
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.ClipRewardEnv`
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.DictObservationsEnv`
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.EpisodicLifeEnv`
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.FireResetEnv`, if :py:attr:`env` contains an action with meaning 'FIRE'
+            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.FireResetEnv`,
+              if :py:attr:`env` contains an action with meaning 'FIRE'
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.ImageToPyTorch`
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.MaxAndSkipEnv` (`skip` = 4)
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.NoopResetEnv` (`noop_max` = 30)
+            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.NoopResetEnv`
+              (`noop_max` = 30)
             * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.WarpFrame`
         """
         return [atari_wrappers.DictObservationsEnv(

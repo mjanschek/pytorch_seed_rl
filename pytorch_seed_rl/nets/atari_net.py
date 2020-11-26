@@ -14,7 +14,7 @@
 
 # taken from https://github.com/facebookresearch/torchbeast/blob/master/torchbeast/monobeast.py
 #   and modified (mostly documentation)
-"""test
+"""
 """
 import torch
 from torch import nn
@@ -30,8 +30,10 @@ class AtariNet(Module):
 
     See Also
     --------
-    * `"IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures"  on arXiv <https://arxiv.org/abs/1802.01561>`__ by Espeholt, Soyer, Munos et al. 
-    * `Torchbeast implementation <https://github.com/facebookresearch/torchbeast/blob/master/torchbeast/monobeast.py>`__
+    * `"IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures"
+      on arXiv <https://arxiv.org/abs/1802.01561>`__ by Espeholt, Soyer, Munos et al.
+    * `Torchbeast implementation
+      <https://github.com/facebookresearch/torchbeast/blob/master/torchbeast/monobeast.py>`__
 
     Parameters
     ----------
@@ -94,7 +96,8 @@ class AtariNet(Module):
         Parameters
         ----------
         inputs: `dict` of :py:obj:`torch.Tensor`
-            Awaits a dictionary as returned by an step of :py:class:`~pytorch_seed_rl.environments.atari_wrappers.DictObservationsEnv`
+            Awaits a dictionary as returned by an step of
+            :py:class:`~pytorch_seed_rl.environments.atari_wrappers.DictObservationsEnv`
         """
         x = inputs["frame"]  # [T, B, C, H, W].
         T, B, *_ = x.shape

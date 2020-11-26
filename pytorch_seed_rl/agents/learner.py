@@ -47,10 +47,12 @@ class Learner(RpcCallee):
         * Invokes their :py:meth:`~pytorch_seed_rl.agents.actor.Actor.loop()` methods.
         * Creates a :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
         * Creates a :py:class:`~pytorch_seed_rl.tools.logger.Logger`.
-        * Starts a continous prefetching process to prepare batches of complete trajectories for learning.
+        * Starts a continous prefetching process to prepare batches
+          of complete trajectories for learning.
 
     During runtime:
-        * Runs evaluates observations received from :py:class:`~pytorch_seed_rl.agents.Actor` and returns actions.
+        * Runs evaluates observations received from
+          :py:class:`~pytorch_seed_rl.agents.Actor` and returns actions.
         * Stores incomplete trajectories in :py:class:`~pytorch_seed_rl.tools.trajectory_store`.
         * Trains a global model from trajectories received from a data prefetching thread.
 
@@ -59,13 +61,16 @@ class Learner(RpcCallee):
     rank : `int`
         Rank given by the RPC group on initiation (as in :py:func:`torch.distributed.rpc.init_rpc`).
     num_learners : `int`
-        Number of total :py:class:`~pytorch_seed_rl.agents.learner.Learner` objects spawned by mother process.
+        Number of total :py:class:`~pytorch_seed_rl.agents.learner.Learner`
+        objects spawned by mother process.
     num_actors : `int`
         Number of total :py:class:`~pytorch_seed_rl.agents.actor.Actor` objects to spawn.
     env_spawner : :py:class:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner`
-        Object that spawns an environment on invoking it's :py:meth:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner.spawn()` method.
+        Object that spawns an environment on invoking it's
+        :py:meth:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner.spawn()` method.
     model : :py:class:`torch.nn.Module`
-        A torch model that processes frames as returned by an environment spawned by :py:attr:`env_spawner`
+        A torch model that processes frames as returned
+        by an environment spawned by :py:attr:`env_spawner`
     optimizer : :py:class:`torch.nn.Module`
         A torch optimizer that links to :py:attr:`model`
     inference_batchsize : `int`
@@ -83,7 +88,8 @@ class Learner(RpcCallee):
     save_path : `str`
         The root directory for saving data. Default: the current working directory.
     exp_name : `str`
-        The title of the experiment to run. This creates a directory with this name in :py:attr:`save_dir`, if it does not exist.
+        The title of the experiment to run.
+        This creates a directory with this name in :py:attr:`save_dir`, if it does not exist.
     verbose : `bool`
         Set True if system metrics shall be printed at interval set by `print_interval`.
     print_interval : `int`
@@ -96,7 +102,7 @@ class Learner(RpcCallee):
                  num_actors: int,
                  env_spawner: EnvSpawner,
                  model: torch.nn.Module,
-                 optimizer,
+                 optimizer: torch.optim.Optimizer,
                  total_steps: int = -1,
                  exp_name: str = "",
                  save_path: str = ".",
@@ -209,7 +215,8 @@ class Learner(RpcCallee):
         Called by :py:meth:`loop()`.
 
         This method first waits on :py:attr:`self.event_start_training`.
-        Then it invokes :py:meth:`_learn_from_batch()` and copies the updated model weights from the learning model to :py:attr:`self.eval_model`.
+        Then it invokes :py:meth:`_learn_from_batch()`
+        and copies the updated model weights from the learning model to :py:attr:`self.eval_model`.
         System metrics are passed to :py:attr:`self.logger`.
         Finally, it checks for reached shutdown criteria, like :py:attr:`self.total_steps` has been reached.
         """
@@ -250,7 +257,9 @@ class Learner(RpcCallee):
                          (self._get_runtime() > self.max_time > 0))
 
         # check if queues are dead
-        if (self.queue_batches_old == len(self.training_batch_queue)) and (self.queue_drop_off_old == len(self.trajectory_store.drop_off_queue)) and (self.queue_rpcs_old == len(self.pending_rpcs)):
+        if (self.queue_batches_old == len(self.training_batch_queue)) \
+                and (self.queue_drop_off_old == len(self.trajectory_store.drop_off_queue)) \
+                and (self.queue_rpcs_old == len(self.pending_rpcs)):
             self.dead_counter += 1
         else:
             self.dead_counter = 0
@@ -287,7 +296,9 @@ class Learner(RpcCallee):
         Before returning the result for the given batch, this method:
             #. Moves its data to the :py:class:`Learner` device (usually GPU)
             #. Runs inference on this data
-            #. Sends evaluated data to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` using a parallel RPC of :py:meth:`add_to_store()`.
+            #. Sends evaluated data to
+               :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`
+               using a parallel RPC of :py:meth:`add_to_store()`.
 
         Parameters
         ----------
@@ -332,14 +343,17 @@ class Learner(RpcCallee):
     def add_to_store(self,
                      caller_ids: List[Union[int, str]],
                      all_metrics: dict):
-        """Sends states within :py:attr:`self.states_to_store` and metrics to :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` according to :py:attr:`caller_ids`.
+        """Sends states within :py:attr:`self.states_to_store` and metrics to
+        :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`
+        according to :py:attr:`caller_ids`.
 
         Parameters
         ----------
         caller_ids : `list[int]` or `list[str]`
             List of unique identifiers for callers.
         all_metrics : `dict`
-            Recorded metrics of these states (primarily recorded in :py:class:`~pytorch_seed_rl.agents.actor.Actor`.)
+            Recorded metrics of these states
+            (primarily recorded in :py:class:`~pytorch_seed_rl.agents.actor.Actor`.)
         """
         # pylint: disable=not-callable
         timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
@@ -510,12 +524,14 @@ class Learner(RpcCallee):
         self.report()
 
     def prefetch(self, waiting_time=0.1):
-        """Continuously prefetches complete trajectories dropped by the :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` for training.
+        """Continuously prefetches complete trajectories dropped by
+        the :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore` for training.
 
         As long as shutdown is not set, this method checks,
         if :py:attr:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore.drop_off_queue`
         has at least :py:attr:`self.training_batchsize` elements.
-        If so, these trajectories are popped from this queue, logged, transformed and queued in :py:attr:`self.training_batch_queue`.
+        If so, these trajectories are popped from this queue, logged,
+        transformed and queued in :py:attr:`self.training_batch_queue`.
 
         This usually runs as asynchronous process.
 
@@ -553,7 +569,8 @@ class Learner(RpcCallee):
         Parameters
         ----------
         trajectory: `dict`
-            Trajectory dropped by :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
+            Trajectory dropped by
+            :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
         """
         gei = trajectory['global_episode_id']
 
@@ -583,7 +600,8 @@ class Learner(RpcCallee):
         Parameters
         ----------
         trajectories: `list`
-            List of trajectories dropped by :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
+            List of trajectories dropped by
+            :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
         """
         states = listdict_to_dictlist([t['states'] for t in trajectories])
 

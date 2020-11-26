@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# pylint: disable=not-callable, missing-module-docstring, missing-class-docstring, missing-function-docstring, too-many-arguments, arguments-differ
+# pylint: disable=not-callable
 """
 """
 import copy
@@ -31,9 +31,12 @@ class TrajectoryStore():
 
     This object includes:
         * Management of stored trajectories, states are registered with the correct episode.
-        * Detection of completed trajectories. These reached a state, where `done` is True, or they contain a number of states equal to :py:attr:`max_trajectory_length`.
-        * Drop of completed trajectories. Data is queued into :py:attr:`drop_off_queue`, which can be accessed by external logic.
-        * Reset of dropped trajectories. Allocated memory is re-used for the next episode of this environment.
+        * Detection of completed trajectories. These reached a state, where `done` is True,
+          or they contain a number of states equal to :py:attr:`max_trajectory_length`.
+        * Drop of completed trajectories. Data is queued into :py:attr:`drop_off_queue`,
+          which can be accessed by external logic.
+        * Reset of dropped trajectories.
+          Allocated memory is re-used for the next episode of this environment.
 
     Parameters
     ----------
@@ -146,9 +149,11 @@ class TrajectoryStore():
         Parameters
         ----------
         key: `str`
-            The key of the trajectory this state relates to. Usually the environments unique global identifier.
+            The key of the trajectory this state relates to.
+            Usually the environments unique global identifier.
         state: `dict`
-            A state as produced from the interaction with an environment. This can include values from model evaluation.
+            A state as produced from the interaction with an environment.
+            This can include values from model evaluation.
         metrics: `dict`
             An optional dictionary containing additional values.
         """
@@ -170,7 +175,7 @@ class TrajectoryStore():
 
             # transform shape
             state = {k: v.view(self.zero_obs[k].shape)
-                    for k, v in state.items()}
+                     for k, v in state.items()}
 
             # overwrite known state (expected to be empty)
             for k, v in state.items():
@@ -182,7 +187,8 @@ class TrajectoryStore():
                 trajectory["complete"].fill_(True)
 
             # drop trajectory, if complete
-            if (trajectory["complete"] or (trajectory['current_length'] == self.max_trajectory_length) and trajectory['current_length'] > 0):
+            if (trajectory["complete"] or (trajectory['current_length'] == self.max_trajectory_length)) \
+                    and (trajectory['current_length'] > 0):
                 self._drop(copy.deepcopy(trajectory))
                 self._reset_trajectory(trajectory)
 
@@ -198,7 +204,8 @@ class TrajectoryStore():
         trajectory: `dict`
             The trajectory to drop.
         waiting_time: `float`
-            The time in seconds this method waits between checks, if :py:attr:`self.drop_off_queue` is still full.
+            The time in seconds this method waits between checks,
+            if :py:attr:`self.drop_off_queue` is still full.
         """
         trajectory["metrics"] = listdict_to_dictlist(trajectory["metrics"])
 

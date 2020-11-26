@@ -36,16 +36,17 @@ parser.add_argument('-R', '--reset',
                     'Resets existing experiment, this removes all data on subdir level.',
                     action='store_true')
 parser.add_argument('-v', '--verbose',
-                    help='Prints system metrics to command line. Set --print_interval for number of training epochs between prints.',
+                    help='Prints system metrics to command line.' +
+                    'Set --print_interval for number of training epochs between prints.',
                     action='store_true')
-parser.add_argument('--gpu_ids', default = "", type = str,
+parser.add_argument('--gpu_ids', default="", type=str,
                     help='A comma-separated list of cuda ids this program is permitted to use.')
 parser.add_argument('--print_interval', default=10, type=int,
                     help='Number of training epochs between prints.')
 parser.add_argument("--savedir", default=os.path.join(os.environ.get("HOME"),
                                                       'logs',
-                                                      'pytorch_seed_rl'), 
-                    type = str, help="Root dir where experiment data will be saved.")
+                                                      'pytorch_seed_rl'),
+                    type=str, help="Root dir where experiment data will be saved.")
 
 # General training settings
 parser.add_argument("--total_steps", default=100000, type=int,
@@ -124,12 +125,12 @@ LEARNER_NAME = "learner{}"
 ACTOR_NAME = "actor{}"
 
 
-def run_threads(rank,
-                world_size,
-                env_spawner,
-                model,
-                optimizer,
-                flags):
+def _run_threads(rank,
+                 world_size,
+                 env_spawner,
+                 model,
+                 optimizer,
+                 flags):
     """Initializes RPC clients.
 
     Intended use as target function for :py:func:`torch.multiprocessing.spawn()`.
@@ -144,9 +145,11 @@ def run_threads(rank,
     worldsize: `int`
         The total number of clients within the multiprocessing Processgroup.
     env_spawner : :py:class:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner`
-        Object that spawns an environment on invoking it's :py:meth:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner.spawn()` method.
+        Object that spawns an environment on invoking it's
+        :py:meth:`~pytorch_seed_rl.environments.env_spawner.EnvSpawner.spawn()` method.
     model : :py:class:`torch.nn.Module`
-        A torch model that processes frames as returned by an environment spawned by :py:attr:`env_spawner`
+        A torch model that processes frames as returned
+        by an environment spawned by :py:attr:`env_spawner`
     optimizer : :py:class:`torch.nn.Module`
         A torch optimizer that links to :py:attr:`model`
     """
@@ -200,7 +203,7 @@ def run_threads(rank,
     rpc.shutdown()
 
 
-def write_flags(flags):
+def _write_flags(flags):
     """Saves flags as a json. Creates directories if needed.
 
     This function expects `full_path` and `json_path` to be present in `flags`.
@@ -217,6 +220,8 @@ def write_flags(flags):
 
 
 def main(flags):
+    """
+    """
     if flags.name == "":
         flags.name = flags.env
 
@@ -228,7 +233,7 @@ def main(flags):
         return
 
     shutil.rmtree(flags.full_path, ignore_errors=True)
-    write_flags(flags)
+    _write_flags(flags)
 
     # create and wrap environment
     env_spawner = EnvSpawner(flags.env, flags.num_env)
@@ -258,7 +263,7 @@ def main(flags):
 
     mp.set_start_method('spawn')
     mp.spawn(
-        run_threads,
+        _run_threads,
         args=(world_size,
               env_spawner,
               model,
