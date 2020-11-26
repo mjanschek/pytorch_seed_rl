@@ -78,7 +78,7 @@ class TrajectoryStore():
 
         #
         self.drop_off_queue = deque(
-            # maxlen=max_drop_off
+            maxlen=max_drop_off
         )
 
     def _new_trajectory(self) -> dict:
@@ -223,12 +223,12 @@ class TrajectoryStore():
                 trajectory["metrics"][k] = torch.cat(v)
 
         counter = 0
-        self.drop_off_queue.append(trajectory)
-        # if len(self.drop_off_queue) < self.drop_off_queue.maxlen:
-        #     self.drop_off_queue.append(trajectory)
-        # elif counter < max_tries:
-        #     counter += 1
-        #     time.sleep(waiting_time)
-        # else:
-        #     # essentially drop this trajectory
-        #     return
+        # self.drop_off_queue.append(trajectory)
+        if len(self.drop_off_queue) < self.drop_off_queue.maxlen:
+            self.drop_off_queue.append(trajectory)
+        elif counter < max_tries:
+            counter += 1
+            time.sleep(waiting_time)
+        else:
+            # essentially drop this trajectory
+            return

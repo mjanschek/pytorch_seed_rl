@@ -148,7 +148,7 @@ class Learner(RpcCallee):
 
         # storage
         self.training_batch_queue = deque(
-            maxlen=max_training_batches
+            # maxlen=max_training_batches
         )
         self.states_to_store = {}
         self.rec_frames = []
@@ -529,15 +529,15 @@ class Learner(RpcCallee):
                 batch = self._to_batch(trajectories)
 
                 counter = 0
-                self.training_batch_queue.append(batch)
-                # if len(self.training_batch_queue) < self.training_batch_queue.maxlen:
-                #     self.training_batch_queue.append(batch)
-                # elif counter < max_tries:
-                #     counter += 1
-                #     time.sleep(waiting_time)
-                # else:
-                #     # essentially drop this batch
-                #     return
+                # self.training_batch_queue.append(batch)
+                if len(self.training_batch_queue) < self.training_batch_queue.maxlen:
+                    self.training_batch_queue.append(batch)
+                elif counter < max_tries:
+                    counter += 1
+                    time.sleep(waiting_time)
+                else:
+                    # essentially drop this batch
+                    return
 
                 # update stats
                 self.fetching_time += time.time() - start
