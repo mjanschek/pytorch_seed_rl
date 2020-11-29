@@ -13,7 +13,6 @@
 # limitations under the License.
 """
 """
-import copy
 import gc
 import os
 import pprint
@@ -130,7 +129,7 @@ class Learner(RpcCallee):
                          num_callees=num_learners,
                          num_callers=num_actors,
                          caller_class=agents.Actor,
-                         caller_args=[env_spawner, render],
+                         caller_args=[env_spawner],
                          future_keys=self.envs_list,
                          rpc_batchsize=inference_batchsize)
 
@@ -145,10 +144,11 @@ class Learner(RpcCallee):
         self.exp_name = exp_name
         self.verbose = verbose
         self.print_interval = print_interval
+        self.render = render
 
         # storage
         self.training_batch_queue = deque(
-            # maxlen=max_training_batches
+            maxlen=max_training_batches
         )
         self.states_to_store = {}
         self.rec_frames = []
@@ -168,6 +168,8 @@ class Learner(RpcCallee):
         self.mean_latency = 0.
         self.episodes_seen = 0
         self.trajectories_seen = 0
+        self.record_gei = None
+        self.return_memory = 0
 
         self.best_return = 0
 
@@ -192,6 +194,8 @@ class Learner(RpcCallee):
         # Create thread locks
         self.lock_model = mp.Lock()
         self.lock_prefetch = mp.Lock()
+        self.lock_record = mp.Lock()
+        self.lock_store = mp.Lock()
 
         # spawn trajectory store
         placeholder_eval_obs = self._build_placeholder_eval_obs(env_spawner)
@@ -233,8 +237,9 @@ class Learner(RpcCallee):
 
         if len(self.training_batch_queue) > 0:
             start = time.time()
-            training_metrics = self._learn_from_batch(
+            batch = self.training_batch_queue.popleft()
                 self.training_batch_queue.popleft())
+            training_metrics = self._learn_from_batch(batch)
             self.training_time += time.time()-start
 
             # parameters are shared between inference and training model automatically
@@ -317,17 +322,20 @@ class Learner(RpcCallee):
         for b in batch:
             for k, v in b.items():
                 try:
+                    # [T, B, C, H, W] => [1, batchsize, C, H, W]
                     b[k] = torch.cat(v, dim=1).to(self.device)
                 except TypeError:
                     # expected for input dictionaries that are not tensors
                     continue
 
+        # more arguments could be sotred in batch tuple
         states = batch[0]
 
         # run inference
         start = time.time()
         with self.lock_model:
             inference_output, _ = self.eval_model(states)
+
         self.inference_time += time.time() - start
 
         self.inference_steps += self.rpc_batchsize
@@ -335,8 +343,9 @@ class Learner(RpcCallee):
 
         # add states to store in parallel process. Don't move data via RPC as it shall stay on cuda.
         self.states_to_store = {k: v.detach()
-                                for k, v in {**states, **inference_output}.items()}
-        self.rref.remote().add_to_store(caller_ids, misc['metrics'])
+        states_to_store = {k: v.detach()
+                           for k, v in {**states, **inference_output}.items()}
+        self.add_to_store(states_to_store, caller_ids, misc['metrics'])
 
         # gather an return results
         results = {c: inference_output['action'][0][i].view(
@@ -345,6 +354,7 @@ class Learner(RpcCallee):
         return results
 
     def add_to_store(self,
+                     states,
                      caller_ids: List[Union[int, str]],
                      all_metrics: dict):
         """Sends states within :py:attr:`self.states_to_store` and metrics to
@@ -362,7 +372,8 @@ class Learner(RpcCallee):
         # pylint: disable=not-callable
         timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
 
-        states = self.states_to_store
+        # with self.lock_store:
+        # states = self.states_to_store
 
         # extract single states and send to trajectory store
         for i, zipped_caller_id_metrics in enumerate(list(zip(caller_ids, all_metrics))):
@@ -581,16 +592,23 @@ class Learner(RpcCallee):
             Trajectory dropped by
             :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
         """
-        gei = trajectory['global_episode_id']
+        gei = trajectory['global_episode_id'].item()
+        key = trajectory['key'].item()
 
-        record = False
+        if self.record_gei is None:
 
-        if 'frame' in trajectory['metrics'].keys():
-            record = True
-            self.rec_frames.extend(trajectory['metrics']['frame'])
+                if len(self.rec_frames) >= 1000:
+                    self.record_episode(self.record_gei)
+                    self.shutdown = True
+                    # for f in self.rec_frames:
+                    #     del f
+                    self.rec_frames = []
 
         self.trajectories_seen += 1
-        if trajectory['complete'].item() and trajectory['current_length'] > 1:
+        # print('EPISODE %d on key %d' %
+        #       (gei, key), trajectory['complete'].item())
+
+        if trajectory['complete'].item():
             self.episodes_seen += 1
             i = trajectory['current_length']-1
             states = trajectory['states']
@@ -610,26 +628,21 @@ class Learner(RpcCallee):
 
             self.logger.log('episodes', episode_data)
 
-            if record and states['episode_return'][i] > self.best_return:
-                self.best_return = states['episode_return'][i]
-                print("NEW RECORD! REACHED RETURN:",
-                      str(self.best_return.item()))
-                self.record_episode(str(gei.item()))
-            
     def record_episode(self, filename):
         """
         """
         print("Record episode with", len(self.rec_frames), "frames")
+        rec_array = np.asarray(self.rec_frames, dtype='uint8')
+        # [T, C, H, W]
+        rec_array = rec_array.swapaxes(1, 2).swapaxes(2, 3)[:, :, :, 0]
+        # [T, W, H, C]
 
         directory = "/".join([self.save_path, self.exp_name, 'gif'])
         os.makedirs(directory, exist_ok=True)
-        imageio.mimsave(directory + '/%s.gif' % filename, [np.array(
-            img) for i, img in enumerate(self.rec_frames) if i % 2 == 0], fps=29)
-
-        self.rec_frames = []
+        imageio.mimsave(directory + '/%s.gif' % filename, rec_array, fps=20)
 
     def _to_batch(self, trajectories: List[dict]):
-        """Extracts states from a list of trajectories, returns them as batch
+        """Extracts states from a list of trajectories, returns them as batch.
 
         Parameters
         ----------
@@ -639,8 +652,14 @@ class Learner(RpcCallee):
         """
         states = listdict_to_dictlist([t['states'] for t in trajectories])
 
-        for k, v in states.items():
-            states[k] = torch.cat(v, dim=1)
+        try:
+            for k, v in states.items():
+                # print(k, v[0].shape)
+                # [T, B, C, H, W]  => [len(trajectories), batchsize, C, H, W]
+                states[k] = torch.cat(v, dim=1).to(self.device)
+                # print(k, states[k].shape)
+        except Exception as e:
+            print(k, e)
 
         states['current_length'] = torch.stack(
             [t['current_length'] for t in trajectories])
