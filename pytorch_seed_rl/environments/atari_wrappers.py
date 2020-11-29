@@ -227,7 +227,7 @@ class DictObservationsEnv(gym.Wrapper):
         # This supports only single-tensor actions ATM.
         initial_last_action = torch.zeros(1, 1, dtype=torch.int64)
         initial_done = torch.zeros(1, 1, dtype=torch.bool)
-        initial_frame = self.reset()
+        initial_frame = torch.zeros(self.reset().shape)
 
         obs = dict(frame=initial_frame,
                    reward=initial_reward,
@@ -250,8 +250,8 @@ class DictObservationsEnv(gym.Wrapper):
         self.episode_return += reward
         episode_step = self.episode_step
         episode_return = self.episode_return
-        if done:
-            frame = self.reset()
+        # if done:
+        #     frame = self.reset()
 
         # pylint: disable=not-callable
         reward = torch.tensor(reward).view(1, 1)

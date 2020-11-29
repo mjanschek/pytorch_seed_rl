@@ -44,10 +44,7 @@ class Actor(RpcCaller):
     def __init__(self,
                  rank: int,
                  infer_rref: RRef,
-                 env_spawner: EnvSpawner,
-                 render: bool = False):
-        # ATTRIBUTES
-        self.render = render
+                 env_spawner: EnvSpawner):
         # ASSERTIONS
         # infer_rref must be a Learner
         assert infer_rref._get_type() is agents.Learner
@@ -93,10 +90,6 @@ class Actor(RpcCaller):
                 'latency': tensor(time.time() - send_time).view(1, 1)
             }
 
-            # record metrics
-            if self.render and self._gen_env_id(i) == 0:
-                self.metrics[i]['frame'] = self.envs[i].render(mode='rgb_array')
-
             # sanity: assert answer is actually for this environment
             assert self._gen_env_id(i) == answer_id
 
@@ -112,7 +105,6 @@ class Actor(RpcCaller):
 
             Called by :py:meth:`act()`
         """
-
         return self.batched_rpc(self._gen_env_id(i),
                                 self.current_states[i],
                                 metrics=self.metrics[i]
