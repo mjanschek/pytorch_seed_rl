@@ -120,7 +120,7 @@ class Learner(RpcCallee):
                  verbose: bool = False,
                  print_interval: int = 10,
                  render: bool = False,
-                 max_training_batches: int = 512):
+                 max_training_batches: int = 128):
 
         self.total_num_envs = num_actors*env_spawner.num_envs
         self.envs_list = [i for i in range(self.total_num_envs)]
@@ -238,7 +238,6 @@ class Learner(RpcCallee):
         if len(self.training_batch_queue) > 0:
             start = time.time()
             batch = self.training_batch_queue.popleft()
-                self.training_batch_queue.popleft())
             training_metrics = self._learn_from_batch(batch)
             self.training_time += time.time()-start
 
@@ -342,7 +341,6 @@ class Learner(RpcCallee):
         self.inference_epoch += 1
 
         # add states to store in parallel process. Don't move data via RPC as it shall stay on cuda.
-        self.states_to_store = {k: v.detach()
         states_to_store = {k: v.detach()
                            for k, v in {**states, **inference_output}.items()}
         self.add_to_store(states_to_store, caller_ids, misc['metrics'])
@@ -415,8 +413,8 @@ class Learner(RpcCallee):
         batch_length = batch['current_length'].sum().item()
         learner_outputs, _ = self.model(batch)
 
-        pg_loss, baseline_loss, entropy_loss = self.compute_losses(batch,
-                                                                   learner_outputs)
+        pg_loss, baseline_loss, entropy_loss = self.compute_losses(
+            batch, learner_outputs)
 
         total_loss = pg_cost * pg_loss \
             + baseline_cost * baseline_loss \
@@ -495,6 +493,8 @@ class Learner(RpcCallee):
                                             rewards=batch["reward"],
                                             discounts=discounts,)
 
+        # print(vtrace_returns.vs[:,0])
+
         pg_loss = loss.policy_gradient(learner_outputs["policy_logits"],
                                        batch["action"],
                                        vtrace_returns.pg_advantages)
@@ -540,7 +540,7 @@ class Learner(RpcCallee):
                 batch = self._to_batch(trajectories)
 
                 counter = 0
-                # self.training_batch_queue.append(batch)
+
                 if len(self.training_batch_queue) < self.training_batch_queue.maxlen:
                     self.training_batch_queue.append(batch)
                 elif counter < max_tries:
@@ -592,43 +592,57 @@ class Learner(RpcCallee):
             Trajectory dropped by
             :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
         """
-        gei = trajectory['global_episode_id'].item()
-        key = trajectory['key'].item()
+        # gei = trajectory['global_episode_id'].item()
+        # key = trajectory['key'].item()
 
-        if self.record_gei is None:
-
-                if len(self.rec_frames) >= 1000:
-                    self.record_episode(self.record_gei)
-                    self.shutdown = True
-                    # for f in self.rec_frames:
-                    #     del f
-                    self.rec_frames = []
+        if self.render:
+            self.record_trajectory(trajectory)
 
         self.trajectories_seen += 1
-        # print('EPISODE %d on key %d' %
-        #       (gei, key), trajectory['complete'].item())
 
-        if trajectory['complete'].item():
-            self.episodes_seen += 1
-            i = trajectory['current_length']-1
-            states = trajectory['states']
-            metrics = trajectory['metrics']
-            self.mean_latency = self.mean_latency + \
-                (metrics['latency'].mean().item() -
-                 self.mean_latency) / self.episodes_seen
+        
+        # if trajectory['complete'].item():
+        #     self.episodes_seen += 1
+        #     i = trajectory['current_length']-1
+        #     states = trajectory['states']
+        #     metrics = trajectory['metrics']
+        #     self.mean_latency = self.mean_latency + \
+        #         (metrics['latency'].mean().item() -
+        #          self.mean_latency) / self.episodes_seen
 
-            episode_data = {
-                'global_episode_id': gei,
-                'training_steps': self.training_steps,
-                'return': states['episode_return'][i],
-                'length': states['episode_step'][i],
-                'timestamp': metrics['timestamp'][i-1],
-                'mean_latency': metrics['latency'].mean()
-            }
+        #     episode_data = {
+        #         'global_episode_id': gei,
+        #         'training_steps': self.training_steps,
+        #         'return': states['episode_return'][i],
+        #         'length': states['episode_step'][i],
+        #         'timestamp': metrics['timestamp'][i-1],
+        #         'mean_latency': metrics['latency'].mean()
+        #     }
 
-            self.logger.log('episodes', episode_data)
+        #     self.logger.log('episodes', episode_data)
 
-    def record_episode(self, filename):
+    def record_trajectory(self, trajectory):
+        if self.record_gei is None:
+            self.record_gei = trajectory['global_episode_id'].item()
+        elif self.record_gei != trajectory['global_episode_id']:
+            return
+
+        print(self.record_gei, len(self.rec_frames))
+        for frames in trajectory['states']['frame']:
+            # watch out for stacked frames
+            f = frames[0].clone().to('cpu').numpy()
+            if np.sum(f) > 0:
+                if len(self.rec_frames) > 0:
+                    if not np.array_equal(f, self.rec_frames[-1]):
+                        self.rec_frames.append(f)
+                else:
+                    self.rec_frames.append(f)
+
+        if trajectory['complete']:
+            self._record_episode(self.record_gei)
+            self.shutdown = True
+
+    def _record_episode(self, filename):
         """
         """
         print("Record episode with", len(self.rec_frames), "frames")
@@ -640,6 +654,7 @@ class Learner(RpcCallee):
         directory = "/".join([self.save_path, self.exp_name, 'gif'])
         os.makedirs(directory, exist_ok=True)
         imageio.mimsave(directory + '/%s.gif' % filename, rec_array, fps=20)
+        self.rec_frames = []
 
     def _to_batch(self, trajectories: List[dict]):
         """Extracts states from a list of trajectories, returns them as batch.
@@ -652,14 +667,9 @@ class Learner(RpcCallee):
         """
         states = listdict_to_dictlist([t['states'] for t in trajectories])
 
-        try:
-            for k, v in states.items():
-                # print(k, v[0].shape)
-                # [T, B, C, H, W]  => [len(trajectories), batchsize, C, H, W]
-                states[k] = torch.cat(v, dim=1).to(self.device)
-                # print(k, states[k].shape)
-        except Exception as e:
-            print(k, e)
+        for k, v in states.items():
+            # [T, B, C, H, W]  => [len(trajectories), batchsize, C, H, W]
+            states[k] = torch.cat(v, dim=1).to(self.device)
 
         states['current_length'] = torch.stack(
             [t['current_length'] for t in trajectories])
