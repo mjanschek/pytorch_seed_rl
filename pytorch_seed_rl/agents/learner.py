@@ -154,6 +154,8 @@ class Learner(RpcCallee):
         )
         self.states_to_store = {}
         self.rec_frames = []
+        self.lock_inference_store = {k: mp.Lock() for k in self.envs_list}
+        self.inference_store = {k: ({},{}) for k in self.envs_list}
 
         # counters
         self.inference_epoch = 0
@@ -241,12 +243,14 @@ class Learner(RpcCallee):
 
         if len(self.training_batch_queue) > 0:
             start = time.time()
-            batch = self.training_batch_queue.popleft()
-            training_metrics = self._learn_from_batch(batch,
-                                                      grad_norm_clipping=40.,
-                                                      pg_cost=1.,
-                                                      baseline_cost=0.5,
-                                                      entropy_cost=0.01)
+
+            with self.lock_model:
+                batch = self.training_batch_queue.popleft()
+                training_metrics = self._learn_from_batch(batch,
+                                                        grad_norm_clipping=40.,
+                                                        pg_cost=1.,
+                                                        baseline_cost=0.5,
+                                                        entropy_cost=0.01)
             self.training_time += time.time()-start
 
             # parameters are shared between inference and training model automatically
@@ -356,9 +360,19 @@ class Learner(RpcCallee):
         self.inference_epoch += 1
 
         # add states to store in parallel process. Don't move data via RPC as it shall stay on cuda.
-        states_to_store = {k: v.detach()
-                           for k, v in {**states, **inference_output}.items()}
-        self.add_to_store(states_to_store, caller_ids, misc['metrics'])
+        states = {k: v.detach()
+                  for k, v in {**states, **inference_output}.items()}
+
+        metrics = misc['metrics']
+        # try:
+        for i, caller_id in enumerate(caller_ids):
+            with self.lock_inference_store[caller_id]:
+                self.inference_store[caller_id] = (
+                    {k: v[0, i] for k, v in states.items()}, metrics[i])
+        # except Exception as e:
+        #     print(e)
+
+        self.rref.remote().add_to_store(caller_ids)
 
         # gather an return results
         results = {c: inference_output['action'][0][i].view(
@@ -367,9 +381,7 @@ class Learner(RpcCallee):
         return results
 
     def add_to_store(self,
-                     states,
-                     caller_ids: List[Union[int, str]],
-                     all_metrics: dict):
+                     caller_ids: List[Union[int, str]]):
         """Sends states within :py:attr:`self.states_to_store` and metrics to
         :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`
         according to :py:attr:`caller_ids`.
@@ -386,13 +398,12 @@ class Learner(RpcCallee):
         timestamp = torch.tensor(time.time(), dtype=torch.float64).view(1, 1)
 
         # with self.lock_store:
-        # states = self.states_to_store
-
         # extract single states and send to trajectory store
-        for i, zipped_caller_id_metrics in enumerate(list(zip(caller_ids, all_metrics))):
-            caller_id, metrics = zipped_caller_id_metrics
-
-            state = {k: v[0, i] for k, v in states.items()}
+        for caller_id in caller_ids:
+            with self.lock_inference_store[caller_id]:
+                state, metrics = self.inference_store[caller_id]
+            # state = {k: v[0, i]
+            #          for k, v in self.states_to_store[caller_id].items()}
             metrics['timestamp'] = timestamp.clone()
 
             self.trajectory_store.add_to_entry(caller_id, state, metrics)
@@ -623,9 +634,10 @@ class Learner(RpcCallee):
             # done is set next state
             done = trajectory['states']['done'][i_end].item()
 
-            steps = trajectory['states']['episode_step'][i_end-1]
-            if steps > 1000:
-                print(eps_id, steps)
+            steps = trajectory['states']['episode_step'][i_end-1].item()
+
+            # if steps > 1000:
+            #     print(eps_id.item(), steps.item())
 
             if done:
                 self.log_episode(trajectory, i_start, i_end)
@@ -673,7 +685,7 @@ class Learner(RpcCallee):
                           i_start: int,
                           i_end: int,
                           done: bool,
-                          max_timediff: float = 300,
+                          max_timediff: float = 60,
                           max_len: int = 0):
 
         if max_len <= 0:
@@ -689,9 +701,8 @@ class Learner(RpcCallee):
         # i_start > 0 can miss episodes, however it ensures that new records always start with episode start
         if self.record_eps_id is None and i_start > 0:
             self.record_eps_id = eps_id
-            print("Start saving frames for episode %s" % eps_id)
         elif self.record_eps_id != eps_id:
-            # reset if timeout
+            # forget if episode reaches timeout
             if time_diff > max_timediff:
                 print("Reset episode %s due to timeout." % eps_id)
                 self.record_eps_id = None
