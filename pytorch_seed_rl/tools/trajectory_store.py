@@ -67,8 +67,10 @@ class TrajectoryStore():
         self.max_trajectory_length = max_trajectory_length
         self.device = device
         self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}
-        self.zero_obs['episode_id'] = torch.tensor(-1, device=self.device).view(1,1)
-        self.zero_obs['episode_length'] = torch.tensor(0, device=self.device).view(1,1)
+        self.zero_obs['episode_id'] = torch.tensor(
+            -1, device=self.device).view(1, 1)
+        self.zero_obs['training_steps'] = torch.tensor(
+            0, device=self.device).view(1, 1)
         self._reset_states(self.zero_obs)
 
         # Counters
@@ -78,7 +80,6 @@ class TrajectoryStore():
         # Setup storage
         self.internal_store = {k: self._new_trajectory() for k in keys}
         self.episode_id_store = {k: i for i, k in enumerate(keys)}
-        self.episode_length_store = {k: 0 for k in keys}
         # self.locks_trajectories = {k: Lock() for k in keys}
         self.lock_episode_counter = Lock()
 
@@ -123,7 +124,6 @@ class TrajectoryStore():
         trajectory['trajectory_id'].fill_(self.trajectory_counter)
         trajectory['current_length'].fill_(0)
         trajectory['metrics'] = list()
-        trajectory['complete'].fill_(False)
 
         self._reset_states(trajectory['states'])
 
@@ -159,19 +159,19 @@ class TrajectoryStore():
         """
         # with self.locks_trajectories[key]:
 
-        # all keys must be known to store 
+        # all keys must be known to store
         assert all(k in self.zero_obs.keys() for k in state.keys())
 
         # load known trajectory
         internal_trajectory = self.internal_store[key]
-        current_length = internal_trajectory['current_length'].item()
+        n = internal_trajectory['current_length'].item()
         internal_states = internal_trajectory['states']
 
         # all metrics keys must be known to store, if trajectory already has valid data
         # metrics = {k: v.to(self.device) for k, v in metrics.items()}
 
         dict_to_device(metrics, self.device)
-        if current_length == 0:
+        if n == 0:
             internal_trajectory["metrics"] = [metrics]
         else:
             internal_trajectory["metrics"].append(metrics)
@@ -183,26 +183,20 @@ class TrajectoryStore():
         # overwrite known state (expected to be empty)
         try:
             for k, v in state.items():
-                assert internal_states[k][current_length].sum() == 0
-                internal_states[k][current_length].copy_(v[0])
+                assert internal_states[k][n].sum() == 0
+                internal_states[k][n].copy_(v[0])
         except AssertionError:
             print("state[%s] under store key %s is not 0!" % (k, key))
 
-
-        if state['real_done']:
+        if state['done']:
             with self.lock_episode_counter:
                 self.episode_counter += 1
-                self.episode_length_store[key] = 0
                 self.episode_id_store[key] = self.episode_counter
 
-        internal_states['episode_length'][current_length].fill_(self.episode_length_store[key])
-        internal_states['episode_id'][current_length].fill_(self.episode_id_store[key])
-
-        self.episode_length_store[key] += 1
         internal_trajectory['current_length'] += 1
+        internal_states['episode_id'][n].fill_(self.episode_id_store[key])
 
-        if (internal_trajectory['current_length'] == self.max_trajectory_length) \
-                and (internal_trajectory['current_length'] > 0):
+        if (internal_trajectory['current_length'] == self.max_trajectory_length):
             self._drop(copy.deepcopy(internal_trajectory))
             self._reset_trajectory(internal_trajectory)
 

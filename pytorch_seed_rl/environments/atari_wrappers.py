@@ -236,12 +236,13 @@ class DictObservationsEnv(gym.Wrapper):
                    episode_step=self.episode_step,
                    last_action=initial_last_action
                    )
+        # pylint: disable=not-callable
         try:
-            # pylint: disable=not-callable
             obs['real_done'] = torch.tensor(
                 self.was_real_done, dtype=torch.bool).view(1, 1)
         except AttributeError:
-            pass
+            obs['real_done'] = torch.tensor(
+                self.initial_done, dtype=torch.bool).view(1, 1)
         return obs
 
     def step(self, action):
@@ -250,8 +251,8 @@ class DictObservationsEnv(gym.Wrapper):
         self.episode_return += reward
         episode_step = self.episode_step
         episode_return = self.episode_return
-        # if done:
-        #     frame = self.reset()
+        if done:
+            frame = self.reset()
 
         # pylint: disable=not-callable
         reward = torch.tensor(reward).view(1, 1)
@@ -269,7 +270,8 @@ class DictObservationsEnv(gym.Wrapper):
             obs['real_done'] = torch.tensor(
                 self.was_real_done, dtype=torch.bool).view(1, 1)
         except AttributeError:
-            pass
+            obs['real_done'] = torch.tensor(
+                done, dtype=torch.bool).view(1, 1)
 
         return obs
 

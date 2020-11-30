@@ -120,7 +120,8 @@ class Learner(RpcCallee):
                  verbose: bool = False,
                  print_interval: int = 10,
                  render: bool = False,
-                 max_training_batches: int = 128):
+                 max_training_batches: int = 128,
+                 max_gif_length: int = 1024):
 
         self.total_num_envs = num_actors*env_spawner.num_envs
         self.envs_list = [i for i in range(self.total_num_envs)]
@@ -145,6 +146,7 @@ class Learner(RpcCallee):
         self.verbose = verbose
         self.print_interval = print_interval
         self.render = render
+        self.max_gif_length = max_gif_length
 
         # storage
         self.training_batch_queue = deque(
@@ -168,10 +170,13 @@ class Learner(RpcCallee):
         self.mean_latency = 0.
         self.episodes_seen = 0
         self.trajectories_seen = 0
-        self.record_gei = None
+        self.record_eps_id = None
         self.return_memory = 0
 
         self.best_return = 0
+
+        self.last_time = 0.
+        self.dead_counter = 0
 
         # torch
         self.device = torch.device(
@@ -213,7 +218,6 @@ class Learner(RpcCallee):
         self.prefetch_threads = [self.rref.remote().prefetch()
                                  for _ in range(num_prefetchers)]
 
-        self.dead_counter = 0
         self.queue_batches_old = len(self.training_batch_queue)
         self.queue_drop_off_old = len(self.trajectory_store.drop_off_queue)
         self.queue_rpcs_old = len(self.pending_rpcs)
@@ -221,7 +225,9 @@ class Learner(RpcCallee):
         # start callers
         self._start_callers()
 
-    def _loop(self):
+    def _loop(self,
+              sleep_time: float = 0.1,
+              system_log_interval: int = 1):
         """Inner loop function of a :py:class:`Learner`.
 
         Called by :py:meth:`loop()`.
@@ -233,20 +239,26 @@ class Learner(RpcCallee):
         Finally, it checks for reached shutdown criteria, like :py:attr:`self.total_steps` has been reached.
         """
 
-        system_metrics = self._get_system_metrics()
-
         if len(self.training_batch_queue) > 0:
             start = time.time()
             batch = self.training_batch_queue.popleft()
-            training_metrics = self._learn_from_batch(batch)
+            training_metrics = self._learn_from_batch(batch,
+                                                      grad_norm_clipping=40.,
+                                                      pg_cost=1.,
+                                                      baseline_cost=0.5,
+                                                      entropy_cost=0.01)
             self.training_time += time.time()-start
 
             # parameters are shared between inference and training model automatically
 
             self.logger.log('training', training_metrics)
-            self.logger.log('system', system_metrics)
         else:
-            time.sleep(0.1)
+            time.sleep(sleep_time)
+
+        if self._loop_iteration == system_log_interval:
+            system_metrics = self._get_system_metrics()
+            self.logger.log('system', system_metrics)
+            self._loop_iteration = 0
 
         if self.verbose and (self.training_epoch % self.print_interval == 0):
             print(pprint.pformat(system_metrics))
@@ -260,7 +272,7 @@ class Learner(RpcCallee):
                          (self._get_runtime() > self.max_time > 0) or
                          self.shutdown)
 
-    def _check_dead_queues(self, threshold=50):
+    def _check_dead_queues(self, dead_threshold=100):
         """Checks, if all queues has the same length for a chosen number of sequential times.
 
         If so, queues are assumed to be dead. The global shutdown is initiated in this case.
@@ -275,7 +287,7 @@ class Learner(RpcCallee):
             self.queue_drop_off_old = len(self.trajectory_store.drop_off_queue)
             self.queue_rpcs_old = len(self.pending_rpcs)
 
-        if self.dead_counter > threshold:
+        if self.dead_counter > dead_threshold:
             print("\n==========================================")
             print("CLOSING DUE TO DEAD QUEUES. (Used STRG+C?)")
             print("==========================================\n")
@@ -334,8 +346,11 @@ class Learner(RpcCallee):
         start = time.time()
         with self.lock_model:
             inference_output, _ = self.eval_model(states)
-
         self.inference_time += time.time() - start
+
+        # log model state at time of inference
+        inference_output['training_steps'] = torch.zeros_like(
+            states['episode_return']).fill_(self.training_steps)
 
         self.inference_steps += self.rpc_batchsize
         self.inference_epoch += 1
@@ -533,7 +548,10 @@ class Learner(RpcCallee):
                 if len(self.trajectory_store.drop_off_queue) >= self.training_batchsize:
                     for _ in range(self.training_batchsize):
                         t = self.trajectory_store.drop_off_queue.popleft()
-                        self._log_trajectory(t)
+                        try:
+                            self.log_trajectory(t)
+                        except Exception as e:
+                            print(e)
                         trajectories.append(t)
 
             if len(trajectories) > 0:
@@ -583,7 +601,7 @@ class Learner(RpcCallee):
 
         self._report()
 
-    def _log_trajectory(self, trajectory: dict):
+    def log_trajectory(self, trajectory: dict):
         """Extracts and logs episode data from a completed trajectory.
 
         Parameters
@@ -592,69 +610,131 @@ class Learner(RpcCallee):
             Trajectory dropped by
             :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
         """
-        # gei = trajectory['global_episode_id'].item()
-        # key = trajectory['key'].item()
-
-        if self.render:
-            self.record_trajectory(trajectory)
-
         self.trajectories_seen += 1
 
-        
-        # if trajectory['complete'].item():
-        #     self.episodes_seen += 1
-        #     i = trajectory['current_length']-1
-        #     states = trajectory['states']
-        #     metrics = trajectory['metrics']
-        #     self.mean_latency = self.mean_latency + \
-        #         (metrics['latency'].mean().item() -
-        #          self.mean_latency) / self.episodes_seen
+        i_start = 0
+        # iterate through trajectory
+        for eps_id in trajectory['states']['episode_id'].unique():
+            # find break point
+            for i, next_id in enumerate(trajectory['states']['episode_id'][i_start:]):
+                i_end = i_start + i
+                if eps_id != next_id:
+                    break
+            # done is set next state
+            done = trajectory['states']['done'][i_end].item()
 
-        #     episode_data = {
-        #         'global_episode_id': gei,
-        #         'training_steps': self.training_steps,
-        #         'return': states['episode_return'][i],
-        #         'length': states['episode_step'][i],
-        #         'timestamp': metrics['timestamp'][i-1],
-        #         'mean_latency': metrics['latency'].mean()
-        #     }
+            steps = trajectory['states']['episode_step'][i_end-1]
+            if steps > 1000:
+                print(eps_id, steps)
 
-        #     self.logger.log('episodes', episode_data)
+            if done:
+                self.log_episode(trajectory, i_start, i_end)
 
-    def record_trajectory(self, trajectory):
-        if self.record_gei is None:
-            self.record_gei = trajectory['global_episode_id'].item()
-        elif self.record_gei != trajectory['global_episode_id']:
+            if self.render:
+                self.record_trajectory(
+                    trajectory, i_start, i_end, done)
+
+            i_start = i_end
+
+    def log_episode(self,
+                    trajectory: dict,
+                    i_start: int,
+                    i_end: int):
+        """Extracts and logs episode data from a completed trajectory.
+
+        Parameters
+        ----------
+        trajectory: `dict`
+            Trajectory dropped by
+            :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
+        trajectory_end: `int`
+        """
+        self.episodes_seen += 1
+
+        state = {k: v[i_end-1] for k, v in trajectory['states'].items()}
+        metrics = {k: v[i_start:i_end+1]
+                   for k, v in trajectory['metrics'].items()}
+
+        mean_latency = metrics['latency'].mean().item()
+        self.mean_latency = self.mean_latency + \
+            (mean_latency - self.mean_latency) / self.episodes_seen
+
+        episode_data = {
+            'episode_id': state['episode_id'],
+            'return': state['episode_return'],
+            'length': state['episode_step'],
+            'training_steps': state['training_steps'],
+        }
+
+        self.logger.log('episodes', episode_data)
+
+    def record_trajectory(self,
+                          trajectory: dict,
+                          i_start: int,
+                          i_end: int,
+                          done: bool,
+                          max_timediff: float = 300,
+                          max_len: int = 0):
+
+        if max_len <= 0:
+            max_len = self.max_gif_length
+
+        done_incr = int(not done)
+
+        eps_id = trajectory['states']['episode_id'][i_start].item()
+
+        current_time = self._get_runtime()
+        time_diff = (current_time - self.last_time)
+
+        # i_start > 0 can miss episodes, however it ensures that new records always start with episode start
+        if self.record_eps_id is None and i_start > 0:
+            self.record_eps_id = eps_id
+            print("Start saving frames for episode %s" % eps_id)
+        elif self.record_eps_id != eps_id:
+            # reset if timeout
+            if time_diff > max_timediff:
+                print("Reset episode %s due to timeout." % eps_id)
+                self.record_eps_id = None
+                self.rec_frames = []
             return
 
-        print(self.record_gei, len(self.rec_frames))
-        for frames in trajectory['states']['frame']:
-            # watch out for stacked frames
-            f = frames[0].clone().to('cpu').numpy()
+        self.last_time = current_time
+
+        # watch out for stacked frames
+        frames = trajectory['states']['frame'][i_start:(i_end+done_incr), 0, 0].clone(
+        ).to('cpu').numpy()
+
+        for f in frames:
+            # skip black screens (should not happen)
             if np.sum(f) > 0:
                 if len(self.rec_frames) > 0:
+                    # skip frame, if it did not change
                     if not np.array_equal(f, self.rec_frames[-1]):
                         self.rec_frames.append(f)
                 else:
                     self.rec_frames.append(f)
 
-        if trajectory['complete']:
-            self._record_episode(self.record_gei)
-            self.shutdown = True
+        if done:
+            eps_tsteps = trajectory['states']['training_steps'][i_end-1].item()
+            eps_return = trajectory['states']['episode_return'][i_end-1].item()
+            if eps_return > self.best_return:
+                self.best_return = eps_return
+                fname = "e%d_r%d_t%d" % (eps_id, eps_return, eps_tsteps)
+                self._record_episode(self.rec_frames, fname)
 
-    def _record_episode(self, filename):
+            self.record_eps_id = None
+            self.rec_frames = []
+
+    def _record_episode(self, frames, filename):
         """
         """
-        print("Record episode with", len(self.rec_frames), "frames")
-        rec_array = np.asarray(self.rec_frames, dtype='uint8')
-        # [T, C, H, W]
-        rec_array = rec_array.swapaxes(1, 2).swapaxes(2, 3)[:, :, :, 0]
-        # [T, W, H, C]
+        print("Record file %s.gif with %d frames!" % (filename, len(frames)))
+        rec_array = np.asarray(frames, dtype='uint8')
+        # [T, H, W]
 
         directory = "/".join([self.save_path, self.exp_name, 'gif'])
         os.makedirs(directory, exist_ok=True)
         imageio.mimsave(directory + '/%s.gif' % filename, rec_array, fps=20)
-        self.rec_frames = []
 
     def _to_batch(self, trajectories: List[dict]):
         """Extracts states from a list of trajectories, returns them as batch.

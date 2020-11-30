@@ -87,6 +87,7 @@ class RpcCallee():
         self.lock_batching = mp.Lock()
         self.shutdown = False
         self.t_start = 0.
+        self._loop_iteration = 0
 
         # storage
         self.active_callers = {}
@@ -145,6 +146,7 @@ class RpcCallee():
 
         print("Loop started. You can interupt using strg+c.")
         while not (self.shutdown):
+            self._loop_iteration += 1
             self._loop()
 
         self.shutdown = True

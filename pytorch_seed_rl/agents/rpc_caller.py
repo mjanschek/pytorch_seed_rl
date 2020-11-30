@@ -40,6 +40,7 @@ class RpcCaller():
         # ATTRIBUTES
         self.callee_rref = callee_rref
         self.rank = rank
+        self._loop_iteration = 0
 
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
@@ -56,6 +57,7 @@ class RpcCaller():
         self.callee_rref.rpc_sync().check_in(self.rank)
 
         while not self.shutdown:
+            self._loop_iteration += 1
             self._loop()
 
         self.callee_rref.rpc_sync().check_out(self.rank)
