@@ -273,7 +273,7 @@ def main(flags):
 
     optim_map = {'adam': lambda parameters: Adam(parameters,
                                                  lr=flags.learning_rate,
-                                                 betas=(flags.b_1, flags.b_2),
+                                                 betas=(flags.beta_1, flags.beta_2),
                                                  eps=flags.epsilon,
                                                  weight_decay=flags.decay),
                  'rmsprop': lambda parameters: RMSprop(parameters,
