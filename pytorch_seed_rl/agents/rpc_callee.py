@@ -94,14 +94,19 @@ class RpcCallee():
         self.future_answers = {k: Future() for k in future_keys}
 
         # self.inference_thread = self.rref.remote()._process_batch()
-        self.inference_threads = [
-            Thread(target=self._process_batch) for _ in range(num_process_threads)]
+        self.processing_threads = [
+            Thread(target=self._process_batch,
+                   daemon=True,
+                   name='processing_thread_%d' % i)
+            for i in range(num_process_threads)]
 
         # spawn actors
-        self._spawn_callers(caller_class, num_callees,
-                            num_callers, *caller_args)
+        self._spawn_callers(caller_class,
+                            num_callees,
+                            num_callers,
+                            *caller_args)
 
-        for t in self.inference_threads:
+        for t in self.processing_threads:
             t.start()
 
     def _spawn_callers(self,
@@ -274,7 +279,7 @@ class RpcCallee():
         print("Answering pending RPCs")
         self._answer_rpcs()
 
-        for t in self.inference_threads:
+        for t in self.processing_threads:
             try:
                 t.join(timeout=5)
             except RuntimeError:

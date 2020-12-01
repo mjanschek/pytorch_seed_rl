@@ -243,9 +243,11 @@ class Learner(RpcCallee):
                              "/".join([self.save_path, self.exp_name]),
                              modes=['csv'])
 
-        # start prefetch threads as remote rpc
-        # self.prefetch_threads = [self.rref.remote().prefetch()
-        #                          for _ in range(num_prefetchers)]
+        # create prefetch threads
+        self.prefetch_threads = [Thread(target=self.prefetch,
+                                        daemon=True,
+                                        name='prefetch_thread_%d' % i)
+                                 for i in range(num_prefetchers)]
 
         self.prefetch_threads = [Thread(target=self.prefetch)
                                  for _ in range(num_prefetchers)]
@@ -258,6 +260,7 @@ class Learner(RpcCallee):
         # start callers
         self._start_callers()
 
+        # start prefetch threads
         for t in self.prefetch_threads:
             t.start()
 
@@ -309,10 +312,15 @@ class Learner(RpcCallee):
                          (self._get_runtime() > self.max_time > 0) or
                          self.shutdown)
 
-    def _check_dead_queues(self, dead_threshold=100):
+    def _check_dead_queues(self, dead_threshold: int = 500):
         """Checks, if all queues has the same length for a chosen number of sequential times.
 
         If so, queues are assumed to be dead. The global shutdown is initiated in this case.
+
+        Parameters
+        ----------
+        dead_threshold: `int`
+            The maximum number of consecutive checks, if queues are dead.
         """
         if (self.queue_batches_old == len(self.batch_queue)) \
                 and (self.queue_drop_off_old == len(self.trajectory_store.drop_off_queue)) \
@@ -333,6 +341,11 @@ class Learner(RpcCallee):
     @staticmethod
     def _build_placeholder_eval_obs(env_spawner: EnvSpawner) -> Dict[str, torch.Tensor]:
         """Returns a dictionary that mimics an evaluated observation with all values being 0.
+
+        Parameters
+        ----------
+        env_spawner: :py:class:`EnvSpawner`
+            An :py:class:`EnvSpawner` that holds information about the environment, that can be spawned.
         """
         placeholder_eval_obs = env_spawner.placeholder_obs
         placeholder_eval_obs['action'] = torch.zeros(1, 1)
@@ -352,9 +365,9 @@ class Learner(RpcCallee):
         Called by :py:meth:`_process_batch()`.
 
         Before returning the result for the given batch, this method:
-            # . Moves its data to the :py:class:`Learner` device (usually GPU)
-            # . Runs inference on this data
-            # . Sends evaluated data to
+            #. Moves its data to the :py:class:`Learner` device (usually GPU)
+            #. Runs inference on this data
+            #. Sends evaluated data to
                :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`
                using a parallel RPC of :py:meth:`add_to_store()`.
 
@@ -593,10 +606,7 @@ class Learner(RpcCallee):
                 if len(self.trajectory_store.drop_off_queue) >= self.batchsize_training:
                     for _ in range(self.batchsize_training):
                         t = self.trajectory_store.drop_off_queue.popleft()
-                        try:
-                            self.log_trajectory(t)
-                        except Exception as e:
-                            print(e)
+                        self.log_trajectory(t)
                         trajectories.append(t)
 
             if len(trajectories) > 0:
@@ -633,10 +643,9 @@ class Learner(RpcCallee):
 
         # Remove process to ensure freeing of resources.
         print("Join prefetch threads.")
-        for p in self.prefetch_threads:
+        for t in self.prefetch_threads:
             try:
-                # p.to_here(5)
-                p.join(timeout=5)
+                t.join(timeout=5)
             except RuntimeError:
                 pass
             # Timeout, prefetch_thread died during shutdown
@@ -754,9 +763,16 @@ class Learner(RpcCallee):
         self.rec_frames = []
 
     def _record_episode(self,
-                        frames: list,
+                        frames: List[np.ndarray],
                         filename: str):
-        """
+        """Writes a gif file made off the list of :py:attr:`frames` using the given :py:attr:`filename`.
+
+        Parameters
+        ----------
+        frames: `list` of py:obj:`numpy.ndarray`
+            A list of images as numpy arrays.
+        filename: `str`
+            A name for the created gif file.
         """
         rec_array = np.asarray(frames, dtype='uint8')
         # [T, H, W]
