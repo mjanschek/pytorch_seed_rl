@@ -48,8 +48,8 @@ class Logger():
                  sources: List[str],
                  directory: str,
                  modes: List[str] = ['csv'],
-                 csv_chunksize: int = 100,
-                 tb_chunksize: int = 100):
+                 csv_chunksize: int = 10,
+                 tb_chunksize: int = 10):
 
         self.function_map = {'csv': self._write_csv_buffered,
                              'tb': self._write_tb}

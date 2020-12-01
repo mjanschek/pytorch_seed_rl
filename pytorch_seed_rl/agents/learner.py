@@ -17,7 +17,7 @@ import gc
 import os
 import pprint
 import time
-# import threading
+from threading import Thread
 from collections import deque
 from typing import Dict, List, Tuple, Union
 
@@ -131,6 +131,7 @@ class Learner(RpcCallee):
                  max_epoch: int = -1,
                  max_time: float = -1.,
                  num_prefetchers: int = 1,
+                 num_inference_threads: int = 1,
                  render: bool = False,
                  max_gif_length: int = 0,
                  verbose: bool = False,
@@ -145,6 +146,7 @@ class Learner(RpcCallee):
         super().__init__(rank,
                          num_callees=num_learners,
                          num_callers=num_actors,
+                         num_process_threads=num_inference_threads,
                          caller_class=agents.Actor,
                          caller_args=[env_spawner],
                          future_keys=self.envs_list)
@@ -242,7 +244,10 @@ class Learner(RpcCallee):
                              modes=['csv'])
 
         # start prefetch threads as remote rpc
-        self.prefetch_threads = [self.rref.remote().prefetch()
+        # self.prefetch_threads = [self.rref.remote().prefetch()
+        #                          for _ in range(num_prefetchers)]
+
+        self.prefetch_threads = [Thread(target=self.prefetch)
                                  for _ in range(num_prefetchers)]
 
         # check variables used by _check_dead_queues()
@@ -252,6 +257,9 @@ class Learner(RpcCallee):
 
         # start callers
         self._start_callers()
+
+        for t in self.prefetch_threads:
+            t.start()
 
     def _loop(self, sleep_time: float = 0.01):
         """Inner loop function of a :py:class:`Learner`.
@@ -585,7 +593,10 @@ class Learner(RpcCallee):
                 if len(self.trajectory_store.drop_off_queue) >= self.batchsize_training:
                     for _ in range(self.batchsize_training):
                         t = self.trajectory_store.drop_off_queue.popleft()
-                        self.log_trajectory(t)
+                        try:
+                            self.log_trajectory(t)
+                        except Exception as e:
+                            print(e)
                         trajectories.append(t)
 
             if len(trajectories) > 0:
@@ -624,7 +635,8 @@ class Learner(RpcCallee):
         print("Join prefetch threads.")
         for p in self.prefetch_threads:
             try:
-                p.to_here(5)
+                # p.to_here(5)
+                p.join(timeout=5)
             except RuntimeError:
                 pass
             # Timeout, prefetch_thread died during shutdown
@@ -666,7 +678,6 @@ class Learner(RpcCallee):
                 eps_id = trajectory['states']['episode_id'][i]
                 if self.record_eps_id is None:
                     self.record_eps_id = eps_id
-                    print("COLLECTING %d" % eps_id)
                 if eps_id == self.record_eps_id:
                     self.record_return = trajectory['states']['episode_return'][i]
                     self.record_frame(trajectory['states']['frame'][i])
@@ -675,13 +686,13 @@ class Learner(RpcCallee):
             #   - saved buffer grows too long
             #   - or current episode_id is 1000 episodes higher
             #   - or episode runs very long (which can happen due to bugs of env)
-            if ((self.record_eps_id is not None) and
-                    ((0 < self.max_gif_length <= len(self.rec_frames)) or
-                     (trajectory['states']['episode_id'][i] - self.record_eps_id > 1000) or
-                     (trajectory['states']['episode_step'][i] > 10*60*24))):
+            if self.record_eps_id is not None:
+                if ((0 < self.max_gif_length <= len(self.rec_frames)) or
+                    (trajectory['states']['episode_id'][i] - self.record_eps_id > 1000) or
+                        (trajectory['states']['episode_step'][i] > 10*60*24)):
 
-                self.record_eps_id = None
-                self.rec_frames = []
+                    self.record_eps_id = None
+                    self.rec_frames = []
 
     def log_episode(self,
                     trajectory: dict,
@@ -728,6 +739,10 @@ class Learner(RpcCallee):
                 self.rec_frames.append(frame)
 
     def record_episode(self):
+        """Empties :py:attr:`self.rec_frames` and writes a gif, if episode score is a new record.
+
+        If :py:attr:`self.record_return` is a new record, write gif file.
+        """
         if self.best_return is None or self.record_return > self.best_return:
             print("Record eps %d with %d frames and %f return!" %
                   (self.record_eps_id, len(self.rec_frames), self.record_return))

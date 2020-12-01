@@ -88,7 +88,9 @@ parser.add_argument("--master_port", default='29500', type=str,
 parser.add_argument("--num_actors", default=2, type=int,
                     help="Number of actors.")
 parser.add_argument("--num_prefetchers", default=1, type=int,
-                    help="Number of prefetch processes.")
+                    help="Number of prefetch threads.")
+parser.add_argument("--num_inference_threads", default=1, type=int,
+                    help="Number of inference threads.")
 parser.add_argument('--tensorpipe',
                     help='Uses the default RPC backend of pytorch, Tensorpipe.',
                     action='store_true')
@@ -207,6 +209,7 @@ def _run_threads(rank,
                                           'max_epoch': flags.max_epoch,
                                           'max_time': flags.max_time,
                                           'num_prefetchers': flags.num_prefetchers,
+                                          'num_inference_threads': flags.num_inference_threads,
                                           'render': flags.render,
                                           'max_gif_length': flags.max_gif_length,
                                           'verbose': flags.verbose,
@@ -302,6 +305,7 @@ def main(flags):
 
 if __name__ == '__main__':
     FLAGS = parser.parse_args()
+    os.environ["OMP_NUM_THREADS"] = "1"
     if FLAGS.gpu_ids != "":
         os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_ids
     main(FLAGS)

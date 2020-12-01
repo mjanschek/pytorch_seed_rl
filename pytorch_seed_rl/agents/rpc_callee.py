@@ -17,6 +17,7 @@ import time
 from abc import abstractmethod
 from collections import deque
 from typing import List, Union
+from threading import Thread
 
 import torch.multiprocessing as mp
 from torch.distributed import rpc
@@ -55,6 +56,7 @@ class RpcCallee():
                  rank: int,
                  num_callees: int = 1,
                  num_callers: int = 1,
+                 num_process_threads: int = 1,
                  caller_class: object = None,
                  caller_args=None,
                  future_keys: list = [None]):
@@ -91,11 +93,16 @@ class RpcCallee():
 
         self.future_answers = {k: Future() for k in future_keys}
 
-        self.inference_thread = self.rref.remote()._process_batch()
+        # self.inference_thread = self.rref.remote()._process_batch()
+        self.inference_threads = [
+            Thread(target=self._process_batch) for _ in range(num_process_threads)]
 
         # spawn actors
         self._spawn_callers(caller_class, num_callees,
                             num_callers, *caller_args)
+
+        for t in self.inference_threads:
+            t.start()
 
     def _spawn_callers(self,
                        caller_class: object,
@@ -266,6 +273,13 @@ class RpcCallee():
         # Answer pending rpcs to enable actors to terminate
         print("Answering pending RPCs")
         self._answer_rpcs()
+
+        for t in self.inference_threads:
+            try:
+                t.join(timeout=5)
+            except RuntimeError:
+                # dead thread
+                pass
 
     def _answer_rpcs(self):
         """Answers all pending RPCs if their caller is not inactive, yet.
