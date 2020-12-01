@@ -13,7 +13,6 @@
 # limitations under the License.
 """
 """
-import copy
 import gc
 import os
 import pprint
@@ -206,13 +205,14 @@ class Learner(RpcCallee):
         self.dead_counter = 0
 
         # torch
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu")
-
+        self.training_device = torch.device(
+            "cuda:0" if torch.cuda.is_available() else "cpu")
+        self.eval_device = self.training_device if torch.cuda.device_count(
+        ) == 1 else torch.device("cuda:1")
         if torch.cuda.device_count() > 1:
             model = DataParallel(model)
 
-        self.model = model.to(self.device)
+        self.model = model.to(self.training_device)
 
         self.eval_model = self.model
         self.eval_model.eval()
@@ -232,7 +232,7 @@ class Learner(RpcCallee):
         placeholder_eval_obs = self._build_placeholder_eval_obs(env_spawner)
         self.trajectory_store = TrajectoryStore(self.envs_list,
                                                 placeholder_eval_obs,
-                                                self.device,
+                                                self.eval_device,
                                                 max_trajectory_length=rollout,
                                                 max_queued_drops=max_queued_drops)
 
@@ -364,7 +364,7 @@ class Learner(RpcCallee):
             for k, v in b.items():
                 try:
                     # [T, B, C, H, W] => [1, batchsize, C, H, W]
-                    b[k] = torch.cat(v, dim=1).to(self.device)
+                    b[k] = torch.cat(v, dim=1).to(self.eval_device)
                 except TypeError:
                     # expected for input dictionaries that are not tensors
                     continue
@@ -675,9 +675,10 @@ class Learner(RpcCallee):
             #   - saved buffer grows too long
             #   - or current episode_id is 1000 episodes higher
             #   - or episode runs very long (which can happen due to bugs of env)
-            if ((0 < self.max_gif_length <= len(self.rec_frames)) or
-                    (trajectory['states']['episode_id'][i] - self.record_eps_id > 1000) or
-                    (trajectory['states']['episode_step'][i] > 10*60*24)):
+            if ((self.record_eps_id is not None) and
+                    ((0 < self.max_gif_length <= len(self.rec_frames)) or
+                     (trajectory['states']['episode_id'][i] - self.record_eps_id > 1000) or
+                     (trajectory['states']['episode_step'][i] > 10*60*24))):
 
                 self.record_eps_id = None
                 self.rec_frames = []
@@ -762,7 +763,7 @@ class Learner(RpcCallee):
 
         for k, v in states.items():
             # [T, B, C, H, W]  => [len(trajectories), batchsize, C, H, W]
-            states[k] = torch.cat(v, dim=1).to(self.device)
+            states[k] = torch.cat(v, dim=1).to(self.training_device)
 
         states['current_length'] = torch.stack(
             [t['current_length'] for t in trajectories])
