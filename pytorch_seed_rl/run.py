@@ -39,16 +39,23 @@ parser.add_argument('-v', '--verbose',
                     help='Prints system metrics to command line.' +
                     'Set --print_interval for number of training epochs between prints.',
                     action='store_true')
-parser.add_argument('--gpu_ids', default="", type=str,
-                    help='A comma-separated list of cuda ids this program is permitted to use.')
 parser.add_argument('--print_interval', default=10, type=int,
                     help='Number of training epochs between prints.')
+parser.add_argument('--system_log_interval', default=1, type=int,
+                    help='Number of core loops between logging system metrics.')
 parser.add_argument("--savedir", default=os.path.join(os.environ.get("HOME"),
                                                       'logs',
                                                       'pytorch_seed_rl'),
                     type=str, help="Root dir where experiment data will be saved.")
 parser.add_argument('--render',
-                    action='store_true')
+                    action='store_true',
+                    help="Renders an episode as gif, " +
+                    " if the recorded data finished with a new point record.")
+parser.add_argument('--max_gif_length', default=0, type=int,
+                    help="Enforces a maximum gif length." +
+                    "Rendering is triggered, if recorded data reaches this volume.")
+parser.add_argument('--gpu_ids', default="", type=str,
+                    help='A comma-separated list of cuda ids this program is permitted to use.')
 
 # General training settings
 parser.add_argument("--total_steps", default=100000, type=int,
@@ -62,15 +69,13 @@ parser.add_argument("--batchsize_training", default=4, type=int,
 parser.add_argument("--rollout", default=80, type=int,
                     help="The rollout length used for training. \n" +
                     "See IMPALA paper for more info.")
-parser.add_argument("--batchsize_inference", default=8, type=int,
-                    help="Inference batch size.")
 parser.add_argument("--use_lstm", action="store_true",
                     help="Use LSTM in agent model.")
 
 # Environment settings
 parser.add_argument("--env", type=str, default="BreakoutNoFrameskip-v4",
                     help="Gym environment.")
-parser.add_argument("--num_env", type=int, default=8,
+parser.add_argument("--num_envs", type=int, default=16,
                     help="Number of environments per actor.")
 
 # Architecture settings
@@ -87,12 +92,20 @@ parser.add_argument("--num_prefetchers", default=1, type=int,
 parser.add_argument('--tensorpipe',
                     help='Uses the default RPC backend of pytorch, Tensorpipe.',
                     action='store_true')
+parser.add_argument("--max_queued_batches", default=128, type=int,
+                    help="Number of batches that can be queued concurrently." +
+                    "This prevents memory overflow.")
+parser.add_argument("--max_queued_drops", default=128, type=int,
+                    help="Number of trajectories that can be queued concurrently by the store." +
+                    "This prevents memory overflow.")
 
 # Loss settings.
-parser.add_argument("--entropy_cost", default=0.01,
-                    type=float, help="Entropy cost/multiplier.")
+parser.add_argument("--pg_cost", default=1.,
+                    type=float, help="Policy gradient cost/multiplier.")
 parser.add_argument("--baseline_cost", default=0.5,
                     type=float, help="Baseline cost/multiplier.")
+parser.add_argument("--entropy_cost", default=0.01,
+                    type=float, help="Entropy cost/multiplier.")
 parser.add_argument("--discounting", default=0.99,
                     type=float, help="Discounting factor.")
 parser.add_argument("--reward_clipping", default="abs_one",
@@ -101,10 +114,11 @@ parser.add_argument("--reward_clipping", default="abs_one",
 
 # Optimizer settings.
 parser.add_argument("--optimizer", default='rmsprop',
+                    choices=['adam', 'rmsprop'],
                     type=str, help="Optimizer used for weight updates.")
-parser.add_argument("--learning_rate", default=0.0006,
+parser.add_argument("--learning_rate", default=0.0005,
                     type=float, metavar="LR", help="Learning rate.")
-parser.add_argument("--grad_norm_clipping", default=40.0, type=float,
+parser.add_argument("--grad_norm_clipping", default=40., type=float,
                     help="Global gradient norm clip.")
 parser.add_argument("--epsilon", default=1e-08, type=float,
                     help="Optimizer epsilon for numerical stability.")
@@ -179,18 +193,27 @@ def _run_threads(rank,
                                         env_spawner,
                                         model,
                                         optimizer),
-                                  kwargs={'total_steps': flags.total_steps,
-                                          'exp_name': flags.name,
+                                  kwargs={'exp_name': flags.name,
                                           'save_path': flags.savedir,
-                                          'inference_batchsize': flags.batchsize_inference,
-                                          'training_batchsize': flags.batchsize_training,
-                                          'rollout_length': flags.rollout,
+                                          'pg_cost': flags.pg_cost,
+                                          'baseline_cost': flags.baseline_cost,
+                                          'entropy_cost': flags.entropy_cost,
+                                          'discounting': flags.discounting,
+                                          'grad_norm_clipping': flags.grad_norm_clipping,
+                                          'reward_clipping': flags.reward_clipping == 'abs_one',
+                                          'batchsize_training': flags.batchsize_training,
+                                          'rollout': flags.rollout,
+                                          'total_steps': flags.total_steps,
                                           'max_epoch': flags.max_epoch,
                                           'max_time': flags.max_time,
                                           'num_prefetchers': flags.num_prefetchers,
+                                          'render': flags.render,
+                                          'max_gif_length': flags.max_gif_length,
                                           'verbose': flags.verbose,
                                           'print_interval': flags.print_interval,
-                                          'render' : flags.render
+                                          'system_log_interval': flags.system_log_interval,
+                                          'max_queued_batches': flags.max_queued_batches,
+                                          'max_queued_drops': flags.max_queued_drops,
                                           })
 
         training_rref = learner_rref.remote().loop()
@@ -239,7 +262,7 @@ def main(flags):
     _write_flags(flags)
 
     # create and wrap environment
-    env_spawner = EnvSpawner(flags.env, flags.num_env)
+    env_spawner = EnvSpawner(flags.env, flags.num_envs)
 
     # model
     model = AtariNet(

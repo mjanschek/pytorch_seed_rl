@@ -13,8 +13,6 @@
 # limitations under the License.
 """Collection of minor utility/qol functions
 """
-
-import functools
 from typing import Dict, List
 
 import torch
@@ -28,12 +26,6 @@ def listdict_to_dictlist(listdict: List[dict]) -> Dict[str, list]:
     listdict: 'list' of 'dict'
         A list of dictionaries
     """
-    # return {key: [item[key] for item in listdict]
-    #         for key in list(functools.reduce(lambda x, y: x.union(y),
-    #                                          (set(dicts.keys())
-    #                                           for dicts in listdict)
-    #                                          ))
-    #         }
     return {key: [item[key] for item in listdict] for key in listdict[0].keys()}
 
 

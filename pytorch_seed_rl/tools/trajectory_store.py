@@ -23,7 +23,7 @@ from typing import List, Union
 import torch
 from torch.multiprocessing import Lock
 
-from .functions import listdict_to_dictlist, dict_to_device
+from .functions import dict_to_device, listdict_to_dictlist
 
 
 class TrajectoryStore():
@@ -48,7 +48,7 @@ class TrajectoryStore():
         The :py:obj:`torch.device` this stores data is stored on.
     max_trajectory_length: `int`
         The number of states a trajectory shall contain when completed.
-    max_drop_off: `int`
+    max_queued_drops: `int`
         The maximum number of dropped trajectories waiting in the queue.
 
     Attributes
@@ -62,15 +62,15 @@ class TrajectoryStore():
                  zero_obs: dict,
                  device: torch.device,
                  max_trajectory_length: int = 128,
-                 max_drop_off: int = 128):
+                 max_queued_drops: int = 128):
         # ATTRIBUTES
         self.max_trajectory_length = max_trajectory_length
         self.device = device
         self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}
-        self.zero_obs['episode_id'] = torch.tensor(
-            -1, device=self.device).view(1, 1)
-        self.zero_obs['training_steps'] = torch.tensor(
-            0, device=self.device).view(1, 1)
+        self.zero_obs['episode_id'] = torch.ones(
+            (1, 1), device=self.device) * -1
+        self.zero_obs['prev_episode_id'] = torch.ones(
+            (1, 1), device=self.device) * -1
         self._reset_states(self.zero_obs)
 
         # Counters
@@ -84,7 +84,7 @@ class TrajectoryStore():
         self.lock_episode_counter = Lock()
 
         self.drop_off_queue = deque(
-            maxlen=max_drop_off
+            maxlen=max_queued_drops
         )
 
     def _new_trajectory(self) -> dict:
@@ -188,14 +188,18 @@ class TrajectoryStore():
         except AssertionError:
             print("state[%s] under store key %s is not 0!" % (k, key))
 
+        # save old episode_id
+        old_eps_id = self.episode_id_store[key]
         if state['done']:
             with self.lock_episode_counter:
                 self.episode_counter += 1
                 self.episode_id_store[key] = self.episode_counter
 
-        internal_trajectory['current_length'] += 1
+        # update info
         internal_states['episode_id'][n].fill_(self.episode_id_store[key])
+        internal_states['prev_episode_id'][n].fill_(old_eps_id)
 
+        internal_trajectory['current_length'] += 1
         if (internal_trajectory['current_length'] == self.max_trajectory_length):
             self._drop(copy.deepcopy(internal_trajectory))
             self._reset_trajectory(internal_trajectory)

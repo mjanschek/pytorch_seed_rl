@@ -49,8 +49,6 @@ class RpcCallee():
         Arguments to pass to :py:attr:`caller_class`.
     future_keys: `list`
         Unique identifiers of future answers.
-    rpc_batchsize: `int`
-        Number of RPCs to gather before processing them as batch.
     """
 
     def __init__(self,
@@ -59,8 +57,7 @@ class RpcCallee():
                  num_callers: int = 1,
                  caller_class: object = None,
                  caller_args=None,
-                 future_keys: list = [None],
-                 rpc_batchsize: int = 4):
+                 future_keys: list = [None]):
 
         # ASSERTIONS
         assert num_callees > 0
@@ -69,24 +66,22 @@ class RpcCallee():
         # caller_class must be given
         assert caller_class is not None
 
-        # Number of future_keys must be equal or greater rpc_batchsize
-        assert rpc_batchsize <= len(future_keys)
-
         # callee_rref is correct subclass
         # use import here to omit circular import
         from ..agents.rpc_caller import RpcCaller
         assert issubclass(caller_class, RpcCaller)
 
         # ATTRIBUTES
-        self.rpc_batchsize = rpc_batchsize
         self.rank = rank
 
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
         self.rref = RRef(self)
         self.lock_batching = mp.Lock()
-        self.shutdown = False
         self.t_start = 0.
+        self.shutdown = False
+
+        # counters
         self._loop_iteration = 0
 
         # storage
@@ -95,6 +90,8 @@ class RpcCallee():
         self.pending_rpcs = deque()
 
         self.future_answers = {k: Future() for k in future_keys}
+
+        self.inference_thread = self.rref.remote()._process_batch()
 
         # spawn actors
         self._spawn_callers(caller_class, num_callees,
@@ -160,9 +157,6 @@ class RpcCallee():
         """Wraps :py:meth:`_process_batch()` for batched, asynchronous RPC processes.
 
         This method appends :py:attr:`self.pending_rpcs` with incoming RPCs.
-        If `len(self.pending_rpcs)` reached at least :py:attr:`self.rpc_batchsize`,
-        :py:meth:`_process_batch()` is called.
-        This ultimately wraps the abstract method :py:meth:`process_batch()`.
 
         Parameters
         ----------
@@ -181,17 +175,10 @@ class RpcCallee():
         with self.lock_batching:
             self.pending_rpcs.append((caller_id, *args, kwargs))
 
-            # if self.rpc_batchsize is reached, pop pending RPCs and start self._process()
-            if len(self.pending_rpcs) >= self.rpc_batchsize:
-                process_rpcs = [self.pending_rpcs.popleft()
-                                for _ in range(self.rpc_batchsize)]
-
-                self._process_batch(process_rpcs)
-
         return f_answer
 
-    def _process_batch(self, pending_rpcs: List[tuple]):
-        """Prepares batched data held by :py:attr:`pending_rpcs` and
+    def _process_batch(self, check_interval: float = 0.000001):
+        """Prepares batched data held by :py:attr:`self.pending_rpcs` and
         invokes :py:meth:`process_batch()` on this data.
         Sets :py:class:`Future` with according results.
 
@@ -200,21 +187,32 @@ class RpcCallee():
         pending_rpcs: `list[tuple]`
             List of tuples that hold data from RPCs.
         """
+        while not self.shutdown:
+            # check once every microsecond
+            time.sleep(check_interval)
+            # print(len(self.pending_rpcs))
+            with self.lock_batching:
+                if len(self.pending_rpcs) == 0:
+                    # skip, if no rpcs pending
+                    continue
+                else:
+                    pending_rpcs = [self.pending_rpcs.popleft()
+                                    for _ in range(len(self.pending_rpcs))]
 
-        caller_ids, *args, kwargs = zip(*pending_rpcs)
-        args = [listdict_to_dictlist(b) for b in args]
-        kwargs = listdict_to_dictlist(kwargs)
+            caller_ids, *args, kwargs = zip(*pending_rpcs)
+            args = [listdict_to_dictlist(b) for b in args]
+            kwargs = listdict_to_dictlist(kwargs)
 
-        process_output = self.process_batch(caller_ids, *args, **kwargs)
+            process_output = self.process_batch(caller_ids, *args, **kwargs)
 
-        for caller_id, result in process_output.items():
-            f_answers = self.future_answers[caller_id]
-            self.future_answers[caller_id] = Future()
-            f_answers.set_result((result,
-                                  self.shutdown,
-                                  caller_id,
-                                  dict()
-                                  ))
+            for caller_id, result in process_output.items():
+                f_answers = self.future_answers[caller_id]
+                self.future_answers[caller_id] = Future()
+                f_answers.set_result((result,
+                                      self.shutdown,
+                                      caller_id,
+                                      dict()
+                                      ))
 
     def _get_runtime(self) -> float:
         """Returns current runtime in seconds.
