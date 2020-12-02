@@ -54,13 +54,10 @@ class RpcCaller():
         #. Checks out with assigned :py:class:`~pytorch_seed_rl.agents.rpc_callee.RpcCallee`.
         #. Calls :py:meth:`_cleanup()`
         """
-        self.callee_rref.rpc_sync().check_in(self.rank)
-
         while not self.shutdown:
             self._loop_iteration += 1
             self._loop()
 
-        self.callee_rref.rpc_sync().check_out(self.rank)
         self._cleanup()
 
     def batched_rpc(self, *args, **kwargs) -> Future:

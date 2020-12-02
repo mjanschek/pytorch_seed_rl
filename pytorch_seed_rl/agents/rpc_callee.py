@@ -154,13 +154,11 @@ class RpcCallee():
         self.t_start = time.time()
 
         print("Loop started. You can interupt using strg+c.")
-        while not (self.shutdown):
+        while not self.shutdown:
             self._loop_iteration += 1
             self._loop()
 
-        self.shutdown = True
         self._cleanup()
-        return True
 
     @async_execution
     def batched_process(self,
@@ -232,20 +230,6 @@ class RpcCallee():
         """
         return time.time()-self.t_start
 
-    def check_in(self, caller_id: Union[int, str]):
-        """Sets a caller active.
-
-        Should be invoked via RPC by a caller.
-        """
-        self.active_callers[caller_id] = True
-
-    def check_out(self, caller_id: Union[int, str]):
-        """Sets a caller inactive.
-
-        Should be invoked via RPC by a caller.
-        """
-        del self.active_callers[caller_id]
-
     @abstractmethod
     def _loop(self):
         """Inner loop function of an :py:class:`RpcCallee`.
@@ -287,14 +271,19 @@ class RpcCallee():
                 # dead thread
                 pass
 
-    def _answer_rpcs(self):
+        print(self.pending_rpcs)
+
+    def _answer_rpcs(self, threshold: int = 10):
         """Answers all pending RPCs if their caller is not inactive, yet.
         """
-        while len(self.pending_rpcs) > 0:
+        tries = 0
+        while tries < threshold:
             try:
                 rpc_tuple = self.pending_rpcs.popleft()
+                tries = 0
             except IndexError:
-                time.sleep(0.1)
+                tries += 1
+                time.sleep(1)
                 continue
 
             caller_id = rpc_tuple[0]

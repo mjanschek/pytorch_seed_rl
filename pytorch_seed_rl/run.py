@@ -91,6 +91,8 @@ parser.add_argument("--num_prefetchers", default=1, type=int,
                     help="Number of prefetch threads.")
 parser.add_argument("--num_inference_threads", default=1, type=int,
                     help="Number of inference threads.")
+parser.add_argument("--num_storing_threads", default=4, type=int,
+                    help="Number of storing threads.")
 parser.add_argument('--tensorpipe',
                     help='Uses the default RPC backend of pytorch, Tensorpipe.',
                     action='store_true')
@@ -210,6 +212,7 @@ def _run_threads(rank,
                                           'max_time': flags.max_time,
                                           'num_prefetchers': flags.num_prefetchers,
                                           'num_inference_threads': flags.num_inference_threads,
+                                          'num_storing_threads': flags.num_storing_threads,
                                           'render': flags.render,
                                           'max_gif_length': flags.max_gif_length,
                                           'verbose': flags.verbose,
@@ -276,7 +279,8 @@ def main(flags):
 
     optim_map = {'adam': lambda parameters: Adam(parameters,
                                                  lr=flags.learning_rate,
-                                                 betas=(flags.beta_1, flags.beta_2),
+                                                 betas=(flags.beta_1,
+                                                        flags.beta_2),
                                                  eps=flags.epsilon,
                                                  weight_decay=flags.decay),
                  'rmsprop': lambda parameters: RMSprop(parameters,
@@ -305,7 +309,7 @@ def main(flags):
 
 if __name__ == '__main__':
     FLAGS = parser.parse_args()
-    os.environ["OMP_NUM_THREADS"] = "1"
+    # os.environ["OMP_NUM_THREADS"] = "1"
     if FLAGS.gpu_ids != "":
         os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_ids
     main(FLAGS)

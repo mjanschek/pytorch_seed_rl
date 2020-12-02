@@ -16,14 +16,10 @@
 """
 """
 import copy
-import time
-from collections import deque
 from typing import List, Union
 
 import torch
-import torch.multiprocessing as mp
 from torch.multiprocessing import Lock
-from threading import Thread
 
 from .functions import dict_to_device, listdict_to_dictlist
 
@@ -65,8 +61,7 @@ class TrajectoryStore():
                  device: torch.device,
                  out_queue,
                  logging_func,
-                 max_trajectory_length: int = 128,
-                 max_queued_drops: int = 128):
+                 max_trajectory_length: int = 128):
         # ATTRIBUTES
         self.max_trajectory_length = max_trajectory_length
         self.device = device
@@ -89,10 +84,6 @@ class TrajectoryStore():
 
         self.out_queue = out_queue
         self.logging_func = logging_func
-
-        # self.drop_off_queue = deque(
-        #     maxlen=max_queued_drops
-        # )
 
     def _new_trajectory(self) -> dict:
         """Returns a new, empty trajectory.
@@ -164,57 +155,57 @@ class TrajectoryStore():
         metrics: `dict`
             An optional dictionary containing additional values.
         """
-        with self.locks_trajectories[key]:
+        self.locks_trajectories[key].acquire()
 
-            # all keys must be known to store
-            assert all(k in self.zero_obs.keys() for k in state.keys())
+        # all keys must be known to store
+        assert all(k in self.zero_obs.keys() for k in state.keys())
 
-            # load known trajectory
-            internal_trajectory = self.internal_store[key]
-            n = internal_trajectory['current_length'].item()
-            internal_states = internal_trajectory['states']
+        # load known trajectory
+        internal_trajectory = self.internal_store[key]
+        n = internal_trajectory['current_length'].item()
+        internal_states = internal_trajectory['states']
 
-            # all metrics keys must be known to store, if trajectory already has valid data
-            # metrics = {k: v.to(self.device) for k, v in metrics.items()}
+        # all metrics keys must be known to store, if trajectory already has valid data
+        # metrics = {k: v.to(self.device) for k, v in metrics.items()}
 
-            dict_to_device(metrics, self.device)
-            if n == 0:
-                internal_trajectory["metrics"] = [metrics]
-            else:
-                internal_trajectory["metrics"].append(metrics)
+        dict_to_device(metrics, self.device)
+        if n == 0:
+            internal_trajectory["metrics"] = [metrics]
+        else:
+            internal_trajectory["metrics"].append(metrics)
 
-            # transform shape
-            state = {k: v.view(self.zero_obs[k].shape)
-                    for k, v in state.items()}
+        # transform shape
+        state = {k: v.view(self.zero_obs[k].shape)
+                 for k, v in state.items()}
 
-            # overwrite known state (expected to be empty)
-            try:
-                for k, v in state.items():
-                    assert internal_states[k][n].sum() == 0
-                    internal_states[k][n].copy_(v[0])
-            except AssertionError:
-                print("state[%s] under store key %s is not 0!" % (k, key))
+        # overwrite known state (expected to be empty)
+        try:
+            for k, v in state.items():
+                assert internal_states[k][n].sum() == 0
+                internal_states[k][n].copy_(v[0])
+        except AssertionError:
+            print("state[%s] under store key %s is not 0!" % (k, key))
 
-            # save old episode_id
-            old_eps_id = self.episode_id_store[key]
-            if state['done']:
-                with self.lock_episode_counter:
-                    self.episode_counter += 1
-                    self.episode_id_store[key] = self.episode_counter
+        # save old episode_id
+        old_eps_id = self.episode_id_store[key]
+        if state['done']:
+            with self.lock_episode_counter:
+                self.episode_counter += 1
+                self.episode_id_store[key] = self.episode_counter
 
-            # update info
-            internal_states['episode_id'][n].fill_(self.episode_id_store[key])
-            internal_states['prev_episode_id'][n].fill_(old_eps_id)
+        # update info
+        internal_states['episode_id'][n].fill_(self.episode_id_store[key])
+        internal_states['prev_episode_id'][n].fill_(old_eps_id)
 
-            internal_trajectory['current_length'] += 1
-            if (internal_trajectory['current_length'] == self.max_trajectory_length):
-                self._drop(copy.deepcopy(internal_trajectory))
-                self._reset_trajectory(internal_trajectory)
+        internal_trajectory['current_length'] += 1
+        if (internal_trajectory['current_length'] == self.max_trajectory_length):
+            self._drop(copy.deepcopy(internal_trajectory))
+            self._reset_trajectory(internal_trajectory)
+
+        self.locks_trajectories[key].release()
 
     def _drop(self,
-              trajectory: dict,
-              waiting_time: float = 0.1,
-              max_tries: int = 50):
+              trajectory: dict):
         """Copies a trajectory and drops the copy on :py:attr:`self.drop_off_queue`.
 
         The original trajectory will be reset in place to keep its memory allocated.
@@ -223,29 +214,12 @@ class TrajectoryStore():
         ----------
         trajectory: `dict`
             The trajectory to drop.
-        waiting_time: `float`
-            The time in seconds this method waits between checks,
-            if :py:attr:`self.drop_off_queue` is still full.
-        max_tries: `int`
-            The maximum number of tries the method shall undertake,
-            if :py:attr:`self.drop_off_queue` is full
         """
         trajectory["metrics"] = listdict_to_dictlist(trajectory["metrics"])
 
         for k, v in trajectory["metrics"].items():
             if isinstance(v[0], torch.Tensor):
                 trajectory["metrics"][k] = torch.cat(v)
-
-        # counter = 0
-        # self.drop_off_queue.append(trajectory)
-        # if len(self.drop_off_queue) < self.drop_off_queue.maxlen:
-        #     self.drop_off_queue.append(trajectory)
-        # elif counter < max_tries:
-        #     counter += 1
-        #     time.sleep(waiting_time)
-        # else:
-        #     # essentially drop this trajectory
-        #     return
 
         self.logging_func(trajectory)
         try:
