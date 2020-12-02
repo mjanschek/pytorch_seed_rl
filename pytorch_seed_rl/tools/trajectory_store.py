@@ -63,8 +63,11 @@ class TrajectoryStore():
                  recorder,
                  trajectory_length: int = 128):
         # ATTRIBUTES
-        self.trajectory_length = trajectory_length
+        self.out_queue = out_queue
         self.device = device
+        self.trajectory_length = trajectory_length
+        self.recorder = recorder
+        
         self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}
         self.zero_obs['episode_id'] = torch.ones(
             (1, 1), device=self.device) * -1
@@ -82,25 +85,7 @@ class TrajectoryStore():
         self.locks_trajectories = {k: Lock() for k in keys}
         self.lock_episode_counter = Lock()
 
-        self.out_queue = out_queue
-        # self.logging_func = logging_func
 
-        # self.render = render
-        # self.max_gif_length = max_gif_length
-        self.render = True
-        self.max_gif_length = 1024
-
-        self.mean_latency = 0.
-
-        self.rec_frames = []
-        self.record_eps_id = None
-        self.best_return = None
-        self.record_return = 0
-
-        self.episodes_seen = 0
-        self.trajectories_seen = 0
-
-        self.recorder = recorder
 
     def _new_trajectory(self) -> dict:
         """Returns a new, empty trajectory.

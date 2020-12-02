@@ -40,16 +40,16 @@ class Recorder():
         self._logger = Logger(['episodes', 'training', 'system'],
                               self.save_path,
                               modes=['csv'])
+        # COUNTERS
+        self.episodes_seen = 0
+        self.trajectories_seen = 0
 
+        # STORAGE
         self.mean_latency = 0.
-
         self.rec_frames = []
         self.record_eps_id = None
         self.best_return = None
         self.record_return = 0
-
-        self.episodes_seen = 0
-        self.trajectories_seen = 0
 
     def log(self, key, in_data):
         """Wrapps :py:meth:`Logger.log()`.
