@@ -160,6 +160,7 @@ class RpcCallee():
 
         self.shutdown = True
         self._cleanup()
+        return True
 
     @async_execution
     def batched_process(self,
@@ -189,7 +190,7 @@ class RpcCallee():
 
         return f_answer
 
-    def _process_batch(self, check_interval: float = 0.000001):
+    def _process_batch(self, check_interval: float = 0.001):
         """Prepares batched data held by :py:attr:`self.pending_rpcs` and
         invokes :py:meth:`process_batch()` on this data.
         Sets :py:class:`Future` with according results.
