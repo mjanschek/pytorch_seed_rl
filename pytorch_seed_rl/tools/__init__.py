@@ -1,4 +1,4 @@
 """This module includes all data related tools.
 """
-from .logger import Logger
+from .recorder import Recorder
 from .trajectory_store import TrajectoryStore

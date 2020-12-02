@@ -14,21 +14,17 @@
 """
 """
 import gc
-import os
 import pprint
-import time
-from threading import Thread
-from collections import deque
-from typing import Dict, List, Tuple, Union
 import queue
+import time
+from collections import deque
+from threading import Thread
+from typing import Dict, List, Tuple, Union
 
-import imageio
-import numpy as np
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
 from torch import nn
-# from torch.nn.parallel import DistributedDataParallel
 from torch.nn.parallel import DataParallel
 from torch.optim.lr_scheduler import LambdaLR
 
@@ -36,7 +32,7 @@ from .. import agents
 from ..agents.rpc_callee import RpcCallee
 from ..environments import EnvSpawner
 from ..functional import loss, vtrace
-from ..tools import Logger, TrajectoryStore
+from ..tools import Recorder, TrajectoryStore
 from ..tools.functions import listdict_to_dictlist
 
 
@@ -118,7 +114,6 @@ class Learner(RpcCallee):
                  env_spawner: EnvSpawner,
                  model: torch.nn.Module,
                  optimizer: torch.optim.Optimizer,
-                 exp_name: str = "",
                  save_path: str = ".",
                  pg_cost: float = 1.,
                  baseline_cost: float = 1.,
@@ -155,7 +150,6 @@ class Learner(RpcCallee):
 
         # ATTRIBUTES
         self.save_path = save_path
-        self.exp_name = exp_name
 
         self.pg_cost = pg_cost
         self.baseline_cost = baseline_cost
@@ -185,11 +179,6 @@ class Learner(RpcCallee):
         self.lock_inference_store = {k: mp.Lock() for k in self.envs_list}
         self.inference_store = {k: ({}, {}) for k in self.envs_list}
 
-        self.rec_frames = []
-        self.record_eps_id = None
-        self.best_return = None
-        self.record_return = 0
-
         # counters
         self.inference_epoch = 0
         self.inference_steps = 0
@@ -202,9 +191,9 @@ class Learner(RpcCallee):
         self.fetching_time = 0.
 
         self.runtime = 0
-        self.mean_latency = 0.
-        self.episodes_seen = 0
-        self.trajectories_seen = 0
+        # self.mean_latency = 0.
+        # self.episodes_seen = 0
+        # self.trajectories_seen = 0
 
         self.dead_counter = 0
 
@@ -237,19 +226,18 @@ class Learner(RpcCallee):
         self.storing_deque = deque(maxlen=1000)
         self.shutdown_event = mp.Event()
 
+        self.recorder = Recorder(save_path=self.save_path,
+                                 render=self.render,
+                                 max_gif_length=self.max_gif_length)
+
         # spawn trajectory store
         placeholder_eval_obs = self._build_placeholder_eval_obs(env_spawner)
         self.trajectory_store = TrajectoryStore(self.envs_list,
                                                 placeholder_eval_obs,
                                                 self.eval_device,
                                                 self.queue_drops,
-                                                self.log_trajectory,
-                                                max_trajectory_length=rollout)
-
-        # spawn logger
-        self.logger = Logger(['episodes', 'training', 'system'],
-                             "/".join([self.save_path, self.exp_name]),
-                             modes=['csv'])
+                                                self.recorder,
+                                                trajectory_length=rollout)
 
         # create prefetch threads
         self.prefetch_threads = [mp.Process(target=self._prefetch,
@@ -305,12 +293,12 @@ class Learner(RpcCallee):
             with self.lock_model:
                 self.eval_model.load_state_dict(self.model.state_dict())
 
-            self.logger.log('training', training_metrics)
+            self.recorder.log('training', training_metrics)
             del training_metrics
 
         if self._loop_iteration == self.system_log_interval:
             system_metrics = self._get_system_metrics()
-            self.logger.log('system', system_metrics)
+            self.recorder.log('system', system_metrics)
             self._loop_iteration = 0
 
         if self.verbose and (self.training_epoch % self.print_interval == 0):
@@ -640,10 +628,11 @@ class Learner(RpcCallee):
 
         # write last buffers
         print("Write and empty log buffers.")
-        self.logger.write_buffers()
+        # pylint: disable=protected-access
+        self.recorder._logger.write_buffers()
 
         # Remove process to ensure freeing of resources.
-        print("Join threads.")        
+        print("Join threads.")
         for t in [*self.prefetch_threads, *self.storing_threads]:
             try:
                 t.join(timeout=5)
@@ -659,131 +648,6 @@ class Learner(RpcCallee):
         gc.collect()
 
         self._report()
-
-    def log_trajectory(self, trajectory: dict):
-        """Extracts and logs episode data from a completed trajectory.
-
-        Parameters
-        ----------
-        trajectory: `dict`
-            Trajectory dropped by
-            :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
-        """
-        self.trajectories_seen += 1
-
-        if not (self.record_eps_id is None or
-                self.record_eps_id in trajectory['states']['episode_id'] or
-                self.record_eps_id in trajectory['states']['prev_episode_id'] or
-                True in trajectory['states']['done']):
-            return
-
-        # iterate through trajectory
-        for i, done in enumerate(trajectory['states']['done']):
-
-            # find break point
-            if done and i > 0:
-                self.log_episode(trajectory, i-1)
-
-                if self.render and trajectory['states']['prev_episode_id'][i] == self.record_eps_id:
-                    self.record_episode()
-
-            if self.render:
-                eps_id = trajectory['states']['episode_id'][i]
-                if self.record_eps_id is None:
-                    self.record_eps_id = eps_id
-                if eps_id == self.record_eps_id:
-                    self.record_return = trajectory['states']['episode_return'][i]
-                    self.record_frame(trajectory['states']['frame'][i])
-
-            # drop recorded data if:
-            #   - saved buffer grows too long
-            #   - or current episode_id is 1000 episodes higher
-            #   - or episode runs very long (which can happen due to bugs of env)
-            if self.record_eps_id is not None:
-                if ((0 < self.max_gif_length <= len(self.rec_frames)) or
-                    (trajectory['states']['episode_id'][i] - self.record_eps_id > 1000) or
-                        (trajectory['states']['episode_step'][i] > 10*60*24)):
-
-                    self.record_eps_id = None
-                    self.rec_frames = []
-
-    def log_episode(self,
-                    trajectory: dict,
-                    i: int):
-        """Extracts and logs episode data from a completed trajectory.
-
-        Parameters
-        ----------
-        trajectory: `dict`
-            Trajectory dropped by
-            :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
-        trajectory_end: `int`
-        """
-        self.episodes_seen += 1
-
-        state = {k: v[i] for k, v in trajectory['states'].items()}
-        metrics = {k: v[i] for k, v in trajectory['metrics'].items()}
-
-        latency = metrics['latency'].item()
-        self.mean_latency = self.mean_latency + \
-            (latency - self.mean_latency) / self.episodes_seen
-
-        episode_data = {
-            'episode_id': state['episode_id'],
-            'return': state['episode_return'],
-            'length': state['episode_step'],
-            'training_steps': state['training_steps'],
-        }
-
-        self.logger.log('episodes', episode_data)
-
-    def record_frame(self, frame: torch.Tensor):
-        """
-        """
-        frame = frame[0, 0].clone().to('cpu').numpy()
-
-        # skip black screens (should not happen)
-        if np.sum(frame) > 0:
-            if len(self.rec_frames) > 0:
-                # skip frame, if it did not change
-                if not np.array_equal(frame, self.rec_frames[-1]):
-                    self.rec_frames.append(frame)
-            else:
-                self.rec_frames.append(frame)
-
-    def record_episode(self):
-        """Empties :py:attr:`self.rec_frames` and writes a gif, if episode score is a new record.
-
-        If :py:attr:`self.record_return` is a new record, write gif file.
-        """
-        if self.best_return is None or self.record_return > self.best_return:
-            print("Record eps %d with %d frames and %f return!" %
-                  (self.record_eps_id, len(self.rec_frames), self.record_return))
-            self.best_return = self.record_return
-
-            fname = "e%d_r%d" % (self.record_eps_id, self.record_return)
-            self._record_episode(self.rec_frames, fname)
-        self.record_eps_id = None
-        self.rec_frames = []
-
-    def _record_episode(self,
-                        frames: List[np.ndarray],
-                        filename: str):
-        """Writes a gif file made off the list of :py:attr:`frames` using the given :py:attr:`filename`.
-
-        Parameters
-        ----------
-        frames: `list` of py:obj:`numpy.ndarray`
-            A list of images as numpy arrays.
-        filename: `str`
-            A name for the created gif file.
-        """
-        rec_array = np.asarray(frames, dtype='uint8')
-        # [T, H, W]
-
-        directory = "/".join([self.save_path, self.exp_name, 'gif'])
-        os.makedirs(directory, exist_ok=True)
-        imageio.mimsave(directory + '/%s.gif' % filename, rec_array, fps=20)
 
     @staticmethod
     def _to_batch(trajectories: List[dict], target_device):
@@ -832,16 +696,16 @@ class Learner(RpcCallee):
                 self.fetching_time), "seconds")
 
             print("Mean inference latency:", str(
-                self.mean_latency), "seconds")
+                self.trajectory_store.mean_latency), "seconds")
 
     def _get_system_metrics(self):
         """Returns the training systems metrics.
         """
         return {
             "runtime": self._get_runtime(),
-            "trajectories_seen": self.trajectories_seen,
-            "episodes_seen": self.episodes_seen,
-            "mean_inference_latency": self.mean_latency,
+            "trajectories_seen": self.trajectory_store.trajectories_seen,
+            "episodes_seen": self.trajectory_store.episodes_seen,
+            "mean_inference_latency": self.trajectory_store.mean_latency,
             "fetching_time": self.fetching_time,
             "inference_time": self.inference_time,
             "inference_steps": self.inference_steps,
