@@ -30,7 +30,7 @@ class TrajectoryStore():
     This object includes:
         * Management of stored trajectories, states are registered with the correct episode.
         * Detection of completed trajectories. These reached a state, where `done` is True,
-          or they contain a number of states equal to :py:attr:`max_trajectory_length`.
+          or they contain a number of states equal to :py:attr:`trajectory_length`.
         * Drop of completed trajectories. Data is queued into :py:attr:`drop_off_queue`,
           which can be accessed by external logic.
         * Reset of dropped trajectories.
@@ -44,7 +44,7 @@ class TrajectoryStore():
         A dictionary with the exact shape of data that shall be stored.
     device: `torch.device`
         The :py:obj:`torch.device` this stores data is stored on.
-    max_trajectory_length: `int`
+    trajectory_length: `int`
         The number of states a trajectory shall contain when completed.
     max_queued_drops: `int`
         The maximum number of dropped trajectories waiting in the queue.
@@ -60,10 +60,10 @@ class TrajectoryStore():
                  zero_obs: dict,
                  device: torch.device,
                  out_queue,
-                 logging_func,
-                 max_trajectory_length: int = 128):
+                 recorder,
+                 trajectory_length: int = 128):
         # ATTRIBUTES
-        self.max_trajectory_length = max_trajectory_length
+        self.trajectory_length = trajectory_length
         self.device = device
         self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}
         self.zero_obs['episode_id'] = torch.ones(
@@ -83,7 +83,24 @@ class TrajectoryStore():
         self.lock_episode_counter = Lock()
 
         self.out_queue = out_queue
-        self.logging_func = logging_func
+        # self.logging_func = logging_func
+
+        # self.render = render
+        # self.max_gif_length = max_gif_length
+        self.render = True
+        self.max_gif_length = 1024
+
+        self.mean_latency = 0.
+
+        self.rec_frames = []
+        self.record_eps_id = None
+        self.best_return = None
+        self.record_return = 0
+
+        self.episodes_seen = 0
+        self.trajectories_seen = 0
+
+        self.recorder = recorder
 
     def _new_trajectory(self) -> dict:
         """Returns a new, empty trajectory.
@@ -106,7 +123,7 @@ class TrajectoryStore():
         states = {}
         for k, v in self.zero_obs.items():
             states[k] = v.repeat(
-                (self.max_trajectory_length,) + (1,)*(len(v.size())-1))
+                (self.trajectory_length,) + (1,)*(len(v.size())-1))
         return states
 
     def _reset_trajectory(self, trajectory: dict):
@@ -198,7 +215,7 @@ class TrajectoryStore():
         internal_states['prev_episode_id'][n].fill_(old_eps_id)
 
         internal_trajectory['current_length'] += 1
-        if (internal_trajectory['current_length'] == self.max_trajectory_length):
+        if (internal_trajectory['current_length'] == self.trajectory_length):
             self._drop(copy.deepcopy(internal_trajectory))
             self._reset_trajectory(internal_trajectory)
 
@@ -221,7 +238,8 @@ class TrajectoryStore():
             if isinstance(v[0], torch.Tensor):
                 trajectory["metrics"][k] = torch.cat(v)
 
-        self.logging_func(trajectory)
+        # self.logging_func(trajectory)
+        self.recorder.log_trajectory(trajectory)
         try:
             self.out_queue.put(trajectory)
         except ValueError:  # queue closed
