@@ -109,7 +109,6 @@ class Learner(RpcCallee):
 
     def __init__(self,
                  rank: int,
-                 num_learners: int,
                  num_actors: int,
                  env_spawner: EnvSpawner,
                  model: torch.nn.Module,
@@ -141,7 +140,7 @@ class Learner(RpcCallee):
         self.envs_list = [i for i in range(self.total_num_envs)]
 
         super().__init__(rank,
-                         num_callees=num_learners,
+                         num_callees=1,
                          num_callers=num_actors,
                          num_process_threads=num_inference_threads,
                          caller_class=agents.Actor,
@@ -168,16 +167,10 @@ class Learner(RpcCallee):
         self.print_interval = print_interval
         self.system_log_interval = system_log_interval
 
-        self.render = render
-        self.max_gif_length = max_gif_length
-
         # storage
         self.batch_queue = deque(
             maxlen=max_queued_batches
         )
-
-        self.lock_inference_store = {k: mp.Lock() for k in self.envs_list}
-        self.inference_store = {k: ({}, {}) for k in self.envs_list}
 
         # counters
         self.inference_epoch = 0
@@ -191,9 +184,6 @@ class Learner(RpcCallee):
         self.fetching_time = 0.
 
         self.runtime = 0
-        # self.mean_latency = 0.
-        # self.episodes_seen = 0
-        # self.trajectories_seen = 0
 
         self.dead_counter = 0
 
@@ -227,8 +217,8 @@ class Learner(RpcCallee):
         self.shutdown_event = mp.Event()
 
         self.recorder = Recorder(save_path=self.save_path,
-                                 render=self.render,
-                                 max_gif_length=self.max_gif_length)
+                                 render=render,
+                                 max_gif_length=max_gif_length)
 
         # spawn trajectory store
         placeholder_eval_obs = self._build_placeholder_eval_obs(env_spawner)
@@ -265,7 +255,8 @@ class Learner(RpcCallee):
 
         self._start_callers()
 
-    def _loop(self, sleep_time: float = 5):
+    # pylint: disable=arguments-differ
+    def _loop(self, waiting_time: float = 5):
         """Inner loop function of a :py:class:`Learner`.
 
         Called by :py:meth:`loop()`.
@@ -278,7 +269,7 @@ class Learner(RpcCallee):
         """
         batch = None
         try:
-            batch = self.queue_batches.get(timeout=sleep_time)
+            batch = self.queue_batches.get(timeout=waiting_time)
         except queue.Empty:
             pass
 
@@ -419,9 +410,9 @@ class Learner(RpcCallee):
         metrics = misc['metrics']
 
         for i, i_caller_id in enumerate(caller_ids):
-            self.queue_for_storing(i_caller_id,
-                                   {k: v[0, i] for k, v in states.items()},
-                                   metrics[i])
+            self._queue_for_storing(i_caller_id,
+                                    {k: v[0, i] for k, v in states.items()},
+                                    metrics[i])
 
         # gather an return results
         results = {c: inference_output['action'][0][i].view(
@@ -429,7 +420,7 @@ class Learner(RpcCallee):
 
         return results
 
-    def queue_for_storing(self, caller_id, state, metrics):
+    def _queue_for_storing(self, caller_id, state, metrics):
         while True:
             if len(self.storing_deque) < self.storing_deque.maxlen:
                 self.storing_deque.append((caller_id, state, metrics))
@@ -696,16 +687,16 @@ class Learner(RpcCallee):
                 self.fetching_time), "seconds")
 
             print("Mean inference latency:", str(
-                self.trajectory_store.mean_latency), "seconds")
+                self.recorder.mean_latency), "seconds")
 
     def _get_system_metrics(self):
         """Returns the training systems metrics.
         """
         return {
             "runtime": self._get_runtime(),
-            "trajectories_seen": self.trajectory_store.trajectories_seen,
-            "episodes_seen": self.trajectory_store.episodes_seen,
-            "mean_inference_latency": self.trajectory_store.mean_latency,
+            "trajectories_seen": self.recorder.trajectories_seen,
+            "episodes_seen": self.recorder.episodes_seen,
+            "mean_inference_latency": self.recorder.mean_latency,
             "fetching_time": self.fetching_time,
             "inference_time": self.inference_time,
             "inference_steps": self.inference_steps,
