@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# pylint: disable=not-callable
+# pylint: disable=not-callable, empty-docstring
 """
 """
 import copy
@@ -67,7 +67,7 @@ class TrajectoryStore():
         self.device = device
         self.trajectory_length = trajectory_length
         self.recorder = recorder
-        
+
         self.zero_obs = {k: v.to(self.device) for k, v in zero_obs.items()}
         self.zero_obs['episode_id'] = torch.ones(
             (1, 1), device=self.device) * -1
@@ -106,9 +106,9 @@ class TrajectoryStore():
         """Returns a new, empty state dictionary.
         """
         states = {}
-        for k, v in self.zero_obs.items():
-            states[k] = v.repeat(
-                (self.trajectory_length,) + (1,)*(len(v.size())-1))
+        for key, value in self.zero_obs.items():
+            states[key] = value.repeat(
+                (self.trajectory_length,) + (1,)*(len(value.size())-1))
         return states
 
     def _reset_trajectory(self, trajectory: dict):
@@ -164,14 +164,14 @@ class TrajectoryStore():
 
         # load known trajectory
         internal_trajectory = self.internal_store[key]
-        n = internal_trajectory['current_length'].item()
+        length = internal_trajectory['current_length'].item()
         internal_states = internal_trajectory['states']
 
         # all metrics keys must be known to store, if trajectory already has valid data
         # metrics = {k: v.to(self.device) for k, v in metrics.items()}
 
         dict_to_device(metrics, self.device)
-        if n == 0:
+        if length == 0:
             internal_trajectory["metrics"] = [metrics]
         else:
             internal_trajectory["metrics"].append(metrics)
@@ -182,9 +182,9 @@ class TrajectoryStore():
 
         # overwrite known state (expected to be empty)
         try:
-            for k, v in state.items():
-                assert internal_states[k][n].sum() == 0
-                internal_states[k][n].copy_(v[0])
+            for k, value in state.items():
+                assert internal_states[k][length].sum() == 0
+                internal_states[k][length].copy_(value[0])
         except AssertionError:
             print("state[%s] under store key %s is not 0!" % (k, key))
 
@@ -196,11 +196,11 @@ class TrajectoryStore():
                 self.episode_id_store[key] = self.episode_counter
 
         # update info
-        internal_states['episode_id'][n].fill_(self.episode_id_store[key])
-        internal_states['prev_episode_id'][n].fill_(old_eps_id)
+        internal_states['episode_id'][length].fill_(self.episode_id_store[key])
+        internal_states['prev_episode_id'][length].fill_(old_eps_id)
 
         internal_trajectory['current_length'] += 1
-        if (internal_trajectory['current_length'] == self.trajectory_length):
+        if internal_trajectory['current_length'] == self.trajectory_length:
             self._drop(copy.deepcopy(internal_trajectory))
             self._reset_trajectory(internal_trajectory)
 
@@ -219,9 +219,9 @@ class TrajectoryStore():
         """
         trajectory["metrics"] = listdict_to_dictlist(trajectory["metrics"])
 
-        for k, v in trajectory["metrics"].items():
-            if isinstance(v[0], torch.Tensor):
-                trajectory["metrics"][k] = torch.cat(v)
+        for k, value in trajectory["metrics"].items():
+            if isinstance(value[0], torch.Tensor):
+                trajectory["metrics"][k] = torch.cat(value)
 
         # self.logging_func(trajectory)
         self.recorder.log_trajectory(trajectory)

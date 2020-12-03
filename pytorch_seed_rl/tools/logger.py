@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# pylint: disable=empty-docstring
 """
 """
 import csv
@@ -47,7 +49,7 @@ class Logger():
     def __init__(self,
                  sources: List[str],
                  directory: str,
-                 modes: List[str] = ['csv'],
+                 modes: List[str] = None,
                  csv_chunksize: int = 10,
                  tb_chunksize: int = 10):
 
@@ -56,6 +58,7 @@ class Logger():
 
         # modes must be known to logic
         assert all(m in self.function_map.keys() for m in modes)
+        assert isinstance(modes, list)
 
         # ATTRIBUTES
         self._modes = modes
@@ -69,8 +72,8 @@ class Logger():
         self._buffers = self._gen_buffers()
         self._csv_headers = {}
 
-        for m, fp in self._filepaths.items():
-            print("%s logs will be saved at %s" % (m, fp))
+        for mode, filepath in self._filepaths.items():
+            print("%s logs will be saved at %s" % (mode, filepath))
 
     def _gen_buffers(self) -> Dict[str, Dict[str, Deque[CsvRowtype]]]:
         """Return a dictionary that is intended for use as buffer for all modes known.
@@ -81,8 +84,8 @@ class Logger():
         """Return a dictionary containing filepaths for each mode.
         """
         filepaths = {m: "/".join([self._directory, m]) for m in self._modes}
-        for fp in filepaths.values():
-            os.makedirs(fp, exist_ok=True)
+        for filepath in filepaths.values():
+            os.makedirs(filepath, exist_ok=True)
         return filepaths
 
     def log(self,
@@ -99,8 +102,8 @@ class Logger():
         """
         self._prep_data(log_data)
 
-        for m in self._modes:
-            self.function_map[m](source, log_data)
+        for mode in self._modes:
+            self.function_map[mode](source, log_data)
 
     def _prep_data(self,
                    log_data: Dict[str, Any]) -> CsvRowtype:
@@ -116,9 +119,9 @@ class Logger():
             del log_data['frame']
 
         # transform all tensors in log_data
-        for k, v in log_data.items():
-            if isinstance(v, torch.Tensor):
-                log_data[k] = v.detach() \
+        for key, value in log_data.items():
+            if isinstance(value, torch.Tensor):
+                log_data[key] = value.detach() \
                     .cpu() \
                     .numpy() \
                     .flatten()[0]
@@ -143,8 +146,8 @@ class Logger():
     def write_buffers(self):
         """Write and clear all buffers.
         """
-        for s in self._sources:
-            self._write_buffer(s, True)
+        for source in self._sources:
+            self._write_buffer(source, True)
 
     def _write_buffer(self, source: str, clear: bool = False):
         """Load and write the buffer registered with :py:attr:`source`.
@@ -205,6 +208,8 @@ class Logger():
         csv_columns: `list` of `str`
             A list of column names that shall be used.
         """
+        # pylint: disable=invalid-name
+
         # If csv file does not exist, create it
         if not os.path.isfile(filename):
             csv_header = csv_columns

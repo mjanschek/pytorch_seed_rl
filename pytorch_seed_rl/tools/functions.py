@@ -46,6 +46,6 @@ def dict_to_device(in_dict, device):
     Skips dictionary items that are not tensors.
     """
 
-    for k, v in in_dict.items():
-        if isinstance(v, torch.Tensor):
-            in_dict[k] = v.to(device)
+    for key, value in in_dict.items():
+        if isinstance(value, torch.Tensor):
+            in_dict[key] = value.to(device)

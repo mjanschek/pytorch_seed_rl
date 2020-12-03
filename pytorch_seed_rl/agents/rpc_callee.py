@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# pylint: disable=empty-docstring
 """
 """
 import time
@@ -59,7 +61,7 @@ class RpcCallee():
                  num_process_threads: int = 1,
                  caller_class: object = None,
                  caller_args=None,
-                 future_keys: list = [None]):
+                 future_keys: list = None):
 
         # ASSERTIONS
         assert num_callees > 0
@@ -70,12 +72,15 @@ class RpcCallee():
 
         # callee_rref is correct subclass
         # use import here to omit circular import
+        # pylint: disable=import-outside-toplevel
         from ..agents.rpc_caller import RpcCaller
         assert issubclass(caller_class, RpcCaller)
+        assert isinstance(future_keys, list)
 
         # ATTRIBUTES
         self.rank = rank
 
+        # pylint: disable=invalid-name
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
         self.rref = RRef(self)
@@ -143,8 +148,8 @@ class RpcCallee():
         """Calls :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop` method
         of all callers in :py:attr:`self.caller_rrefs`.
         """
-        for c in self.caller_rrefs:
-            c.remote().loop()
+        for caller_rref in self.caller_rrefs:
+            caller_rref.remote().loop()
         print("Caller loops started.")
 
     def loop(self):
@@ -270,9 +275,9 @@ class RpcCallee():
         self._answer_rpcs()
 
         print("Joining processing threads.")
-        for t in self.processing_threads:
+        for thread in self.processing_threads:
             try:
-                t.join(timeout=5)
+                thread.join(timeout=5)
             except RuntimeError:
                 # dead thread
                 pass

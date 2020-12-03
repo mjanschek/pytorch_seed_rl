@@ -9,7 +9,7 @@ depending of the wanted change.
 See Also
 --------
 * `"SEED RL: Scalable and Efficient Deep-RL with Accelerated Central Inference"
-  on arXiv <https://arxiv.org/abs/1910.06591>`__ by Espeholt et al. 
+  on arXiv <https://arxiv.org/abs/1910.06591>`__ by Espeholt et al.
 * `SEED Github repository <https://github.com/google-research/seed_rl>`__
 
 Warnings

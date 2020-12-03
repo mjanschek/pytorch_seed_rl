@@ -24,7 +24,7 @@
 
 See Also
 --------
-`"IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures" 
+`"IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures"
 on arXiv <https://arxiv.org/abs/1802.01561>`__ by Espeholt, Soyer, Munos et al.
 
 All exposed functions return a :py:class:`~VTraceFromLogitsReturns`.
@@ -145,6 +145,7 @@ def _from_importance_weights(log_rhos: torch.Tensor,
     clip_pg_rho_threshold: `float`,
         Clipping value for Vtrace. See paper for details.
     """
+    # pylint: disable=invalid-name
     with torch.no_grad():
         rhos = torch.exp(log_rhos)
         if clip_rho_threshold is not None:

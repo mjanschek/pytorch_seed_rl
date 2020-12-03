@@ -14,6 +14,8 @@
 
 # taken from https://github.com/facebookresearch/torchbeast/blob/master/torchbeast/monobeast.py
 #   and modified (mostly documentation)
+#
+# pylint: disable=empty-docstring,invalid-name
 """
 """
 import torch

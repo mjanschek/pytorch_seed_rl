@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# pylint: disable=empty-docstring
 """
 """
 import gc
@@ -231,7 +233,8 @@ class Learner(RpcCallee):
                                                 self.recorder,
                                                 trajectory_length=rollout)
 
-        # create prefetch threads
+        # Create prefetch threads
+        # Not actual threads. Name is chosen due to equal API usage in this code
         self.prefetch_threads = [mp.Process(target=self._prefetch,
                                             args=(self.queue_drops,
                                                   self.queue_batches,
@@ -249,11 +252,12 @@ class Learner(RpcCallee):
 
         self.storing_threads = [Thread(target=self._store,
                                        daemon=True,
-                                       name='storing_thread_%d' % i) for i in range(num_storing_threads)]
+                                       name='storing_thread_%d' % i)
+                                for i in range(num_storing_threads)]
 
         # start threads and processes
-        for t in [*self.prefetch_threads, *self.storing_threads]:
-            t.start()
+        for thread in [*self.prefetch_threads, *self.storing_threads]:
+            thread.start()
 
         self._start_callers()
 
@@ -267,7 +271,8 @@ class Learner(RpcCallee):
         Then it invokes :py:meth:`_learn_from_batch()`
         and copies the updated model weights from the learning model to :py:attr:`self.eval_model`.
         System metrics are passed to :py:attr:`self.logger`.
-        Finally, it checks for reached shutdown criteria, like :py:attr:`self.total_steps` has been reached.
+        Finally, it checks for reached shutdown criteria,
+        like :py:attr:`self.total_steps` has been reached.
         """
         batch = None
         try:
@@ -344,7 +349,8 @@ class Learner(RpcCallee):
         Parameters
         ----------
         env_spawner: :py:class:`EnvSpawner`
-            An :py:class:`EnvSpawner` that holds information about the environment, that can be spawned.
+            An :py:class:`EnvSpawner` that holds information about the environment,
+            that can be spawned.
         """
         placeholder_eval_obs = env_spawner.placeholder_obs
         placeholder_eval_obs['action'] = torch.zeros(1, 1)
@@ -380,11 +386,11 @@ class Learner(RpcCallee):
             Dict of keyword arguments. Primarily used for metrics in this application.
         """
         # concat tensors for each dict in a batch and move to own device
-        for b in batch:
-            for k, v in b.items():
+        for dictionary in batch:
+            for key, value in dictionary.items():
                 try:
                     # [T, B, C, H, W] => [1, batchsize, C, H, W]
-                    b[k] = torch.cat(v, dim=1).to(self.eval_device)
+                    dictionary[key] = torch.cat(value, dim=1).to(self.eval_device)
                 except TypeError:
                     # expected for input dictionaries that are not tensors
                     continue
@@ -626,12 +632,12 @@ class Learner(RpcCallee):
 
         # Remove process to ensure freeing of resources.
         print("Join threads.")
-        for t in [*self.prefetch_threads, *self.storing_threads]:
+        for thread in [*self.prefetch_threads, *self.storing_threads]:
             try:
-                t.join(timeout=5)
+                thread.join(timeout=5)
             except RuntimeError:
+                # Timeout, thread died during shutdown
                 pass
-            # Timeout, thread died during shutdown
 
         self.queue_batches.join_thread()
         self.queue_drops.join_thread()
@@ -654,9 +660,9 @@ class Learner(RpcCallee):
         """
         states = listdict_to_dictlist([t['states'] for t in trajectories])
 
-        for k, v in states.items():
+        for key, value in states.items():
             # [T, B, C, H, W]  => [len(trajectories), batchsize, C, H, W]
-            states[k] = torch.cat(v, dim=1).clone().to(target_device)
+            states[key] = torch.cat(value, dim=1).clone().to(target_device)
 
         states['current_length'] = torch.stack(
             [t['current_length'] for t in trajectories]).clone()
