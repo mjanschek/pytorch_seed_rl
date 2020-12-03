@@ -222,5 +222,5 @@ class TrajectoryStore():
         self.recorder.log_trajectory(trajectory)
         try:
             self.out_queue.put(trajectory)
-        except ValueError:  # queue closed
+        except AssertionError:  # queue closed
             return

@@ -616,7 +616,7 @@ class Learner(RpcCallee):
 
             try:
                 out_queue.put(batch)
-            except ValueError:  # queue closed
+            except AssertionError:  # queue closed
                 continue
 
     @staticmethod
