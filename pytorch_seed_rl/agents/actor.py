@@ -59,6 +59,8 @@ class Actor(RpcCaller):
         self.metrics = [{'latency': tensor(0.).view(1, 1)}
                         for _ in range(self.num_envs)]
 
+        self.futures = []
+
     def _loop(self):
         """Inner loop method of an :py:class:`~pytorch_seed_rl.agents.actor.Actor`.
             Called by :py:meth:`~pytorch_seed_rl.agents.rpc_caller.RpcCaller.loop()`.
@@ -70,34 +72,36 @@ class Actor(RpcCaller):
     def act(self):
         """Interact with internal environment.
 
-            #. Send current state (and metrics) off to batching layer for inference.
-            #. Receive action.
+            # . Send current state (and metrics) off to batching layer for inference.
+            # . Receive action.
         """
+
         # Send off inference requests for all environments at once, take time
         send_time = time.time()
-        future_actions = [self._act(i) for i in range(self.num_envs)]
+        self.futures = [self._act(i) for i in range(self.num_envs)]
 
         # Wait for requested action for each environment.
-        for i, rpc_tuple in enumerate(future_actions):
-            action, self.shutdown, answer_id, inference_infos = rpc_tuple.wait()
+        if not self.shutdown:
+            for i, rpc_tuple in enumerate(self.futures):
+                action, self.shutdown, answer_id, inference_infos = rpc_tuple.wait()
 
-            # If requested action is None, Learner was shutdown. Loop can be exited here.
-            if action is None:
-                break
+                # If requested action is None, Learner was shutdown. Loop can be exited here.
+                if action is None:
+                    return
 
-            # pylint: disable=not-callable
-            self.metrics[i] = {
-                'latency': tensor(time.time() - send_time).view(1, 1)
-            }
+                # pylint: disable=not-callable
+                self.metrics[i] = {
+                    'latency': tensor(time.time() - send_time).view(1, 1)
+                }
 
-            # sanity: assert answer is actually for this environment
-            assert self._gen_env_id(i) == answer_id
+                # sanity: assert answer is actually for this environment
+                assert self._gen_env_id(i) == answer_id
 
-            # perform an environment step
-            # and save new state and possible information recorded during inference on the Learner.
-            self.current_states[i] = self.envs[i].step(action)
-            self.current_states[i] = {
-                **self.current_states[i], **inference_infos}
+                # perform an environment step
+                # and save new state and possible information recorded during inference on the Learner.
+                self.current_states[i] = self.envs[i].step(action)
+                self.current_states[i] = {
+                    **self.current_states[i], **inference_infos}
 
     def _act(self, i: int) -> Future:
         """Wraps rpc call that is processed batch-wise by a `~pytorch_seed_rl.agents.Learner`.
@@ -122,3 +126,6 @@ class Actor(RpcCaller):
         """
         for env in self.envs:
             env.close()
+
+    def get_futures(self):
+        return self.futures

@@ -45,6 +45,7 @@ class RpcCaller():
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
         self.shutdown = False
+        self._shutdown = False
 
     def loop(self):
         """Main loop function of an :py:class:`RpcCaller`.
@@ -59,11 +60,13 @@ class RpcCaller():
             self._loop()
 
         self._cleanup()
+        self._shutdown = True
 
     def batched_rpc(self, *args, **kwargs) -> Future:
         """Wrap for batched async RPC ran on remote callee.
         """
-        return self.callee_rref.rpc_async().batched_process(*args, **kwargs)
+        future_action = self.callee_rref.rpc_async().batched_process(*args, **kwargs)
+        return future_action
 
     @abstractmethod
     def _loop(self):
@@ -76,3 +79,13 @@ class RpcCaller():
         """Cleans up after main loop is done. Called by :py:meth:`loop()`
         """
         raise NotImplementedError
+
+    def get_shutdown(self):
+        """Sets `shutdown` True.
+        """
+        return self._shutdown
+
+    def get_state(self):
+        """Sets `shutdown` True.
+        """
+        return self.state
