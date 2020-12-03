@@ -47,6 +47,8 @@ class EnvSpawner():
     def __init__(self,
                  env_id: str,
                  num_envs: int = 1):
+
+        # ATTRIBUTES
         self.env_id = env_id
         self.num_envs = num_envs
         self._generate_env_info()
@@ -55,16 +57,16 @@ class EnvSpawner():
         """Returns a list of wrapped environments (using OpenAI's :py:mod:`gym`).
 
         Applies:
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.ClipRewardEnv`
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.DictObservationsEnv`
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.EpisodicLifeEnv`
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.FireResetEnv`,
+            * :py:class:`~.atari_wrappers.ClipRewardEnv`
+            * :py:class:`~.atari_wrappers.DictObservationsEnv`
+            * :py:class:`~.atari_wrappers.EpisodicLifeEnv`
+            * :py:class:`~.atari_wrappers.FireResetEnv`,
               if :py:attr:`env` contains an action with meaning 'FIRE'
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.ImageToPyTorch`
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.MaxAndSkipEnv` (`skip` = 4)
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.NoopResetEnv`
+            * :py:class:`~.atari_wrappers.ImageToPyTorch`
+            * :py:class:`~.atari_wrappers.MaxAndSkipEnv` (`skip` = 4)
+            * :py:class:`~.atari_wrappers.NoopResetEnv`
               (`noop_max` = 30)
-            * :py:class:`~pytorch_seed_rl.environments.atari_wrappers.WarpFrame`
+            * :py:class:`~.atari_wrappers.WarpFrame`
         """
         return [atari_wrappers.DictObservationsEnv(
             atari_wrappers.wrap_pytorch(

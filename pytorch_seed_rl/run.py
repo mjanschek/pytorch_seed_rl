@@ -88,11 +88,11 @@ PARSER.add_argument("--master_port", default='29500', type=str,
                     "WARNING: CHANGE WITH CAUTION!")
 PARSER.add_argument("--num_actors", default=2, type=int,
                     help="Number of actors.")
-PARSER.add_argument("--num_prefetchers", default=1, type=int,
+PARSER.add_argument("--threads_prefetch", default=1, type=int,
                     help="Number of prefetch threads.")
-PARSER.add_argument("--num_inference_threads", default=1, type=int,
+PARSER.add_argument("--threads_inference", default=1, type=int,
                     help="Number of inference threads.")
-PARSER.add_argument("--num_storing_threads", default=4, type=int,
+PARSER.add_argument("--threads_store", default=4, type=int,
                     help="Number of storing threads.")
 PARSER.add_argument('--tensorpipe',
                     help='Uses the default RPC backend of pytorch, Tensorpipe.',
@@ -209,9 +209,9 @@ def _run_threads(rank,
                                           'total_steps': flags.total_steps,
                                           'max_epoch': flags.max_epoch,
                                           'max_time': flags.max_time,
-                                          'num_prefetchers': flags.num_prefetchers,
-                                          'num_inference_threads': flags.num_inference_threads,
-                                          'num_storing_threads': flags.num_storing_threads,
+                                          'threads_prefetch': flags.threads_prefetch,
+                                          'threads_inference': flags.threads_inference,
+                                          'threads_store': flags.threads_store,
                                           'render': flags.render,
                                           'max_gif_length': flags.max_gif_length,
                                           'verbose': flags.verbose,

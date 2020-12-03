@@ -18,15 +18,6 @@ import torch
 import torch.nn.functional as F
 
 
-# def gae_v():
-#     """Consider GAE_V paper.
-#     """
-
-
-# def compute_baseline_loss(advantages):
-#     return 0.5 * torch.sum(advantages ** 2)
-
-
 def entropy(logits: torch.Tensor) -> torch.Tensor:
     """Return the entropy loss, i.e., the negative entropy of the policy.
 

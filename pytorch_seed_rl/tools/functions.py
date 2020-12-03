@@ -40,12 +40,19 @@ def dictlist_to_listdict(dictlist: Dict[str, list]) -> List[dict]:
     return [dict(zip(dictlist, t)) for t in zip(*dictlist.values())]
 
 
-def dict_to_device(in_dict, device):
+def dict_to_device(in_dict, target_device):
     """Moves a whole dictionary to a target torch device.
 
     Skips dictionary items that are not tensors.
+
+    Parameters
+    ----------
+    in_dict: 'dict'
+        A dictionary
+    target_device: :py:obj:'torch.device'
+        The torch device, values of this dictionary shall be moved to.
     """
 
     for key, value in in_dict.items():
         if isinstance(value, torch.Tensor):
-            in_dict[key] = value.to(device)
+            in_dict[key] = value.to(target_device)
