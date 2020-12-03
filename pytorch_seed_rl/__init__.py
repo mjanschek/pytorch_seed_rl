@@ -19,6 +19,5 @@ Missing features in comparison to original implementation:
       and `SAC <https://arxiv.org/abs/1801.01290>`__
     * LSTM model
     * Multi-Node distributed training
-    * Rendering of actor-environment interaction
     * Tensorboard functionality
 """

@@ -16,7 +16,7 @@
 """
 """
 import os
-from typing import List
+from typing import Any, Dict, List
 
 import imageio
 import numpy as np
@@ -26,7 +26,19 @@ from .logger import Logger
 
 
 class Recorder():
-    """
+    """Object that can record data and create gifs.
+
+    This spawns a :py:class:`~.Logger`.
+
+    Parameters
+    ----------
+    save_path: `str`
+        The root directory for saving data. Default: the current working directory.
+    render: `bool`
+        Set True, gifs shall be created, if recorded frames result into a new record.
+    max_gif_length: `int`
+        The maximum number of frames that shall be saved as a single gif.
+        Set to 0 (default), if no limit shall be enforced.
     """
 
     def __init__(self,
@@ -34,11 +46,11 @@ class Recorder():
                  render=False,
                  max_gif_length=10000):
         # ATTRIBUTES
-        self.save_path = save_path
-        self.render = render
-        self.max_gif_length = max_gif_length
+        self._save_path = save_path
+        self._render = render
+        self._max_gif_length = max_gif_length
         self._logger = Logger(['episodes', 'training', 'system'],
-                              self.save_path,
+                              self._save_path,
                               modes=['csv'])
         # COUNTERS
         self.episodes_seen = 0
@@ -51,8 +63,17 @@ class Recorder():
         self.best_return = None
         self.record_return = 0
 
-    def log(self, key, in_data):
-        """Wrapps :py:meth:`Logger.log()`.
+    def log(self,
+            key: str,
+            in_data: Dict[str, Any]):
+        """Wraps :py:meth:`Logger.log()`.
+
+        Parameters
+        ----------
+        key: `str`
+            The :py:attr:`key` this :py:attr:`in_data` comes from.
+        in_data: `dict`
+            The data that shall be logged :py:attr:`in_data`.
         """
         self._logger.log(key, in_data)
 
@@ -62,8 +83,7 @@ class Recorder():
         Parameters
         ----------
         trajectory: `dict`
-            Trajectory dropped by
-            :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
+            Trajectory dropped by :py:class:`~.TrajectoryStore`.
         """
         self.trajectories_seen += 1
 
@@ -80,10 +100,10 @@ class Recorder():
             if done and i > 0:
                 self._log_episode(trajectory, i-1)
 
-                if self.render and trajectory['states']['prev_episode_id'][i] == self.record_eps_id:
+                if self._render and trajectory['states']['prev_episode_id'][i] == self.record_eps_id:
                     self._record_episode()
 
-            if self.render:
+            if self._render:
                 eps_id = trajectory['states']['episode_id'][i]
                 if self.record_eps_id is None:
                     self.record_eps_id = eps_id
@@ -96,7 +116,7 @@ class Recorder():
             #   - or current episode_id is 1000 episodes higher
             #   - or episode runs very long (which can happen due to bugs of env)
             if self.record_eps_id is not None:
-                if ((0 < self.max_gif_length <= len(self.rec_frames)) or
+                if ((0 < self._max_gif_length <= len(self.rec_frames)) or
                         (trajectory['states']['episode_id'][i] - self.record_eps_id > 1000) or
                         (trajectory['states']['episode_step'][i] > 10*60*24)):
 
@@ -113,7 +133,8 @@ class Recorder():
         trajectory: `dict`
             Trajectory dropped by
             :py:class:`~pytorch_seed_rl.tools.trajectory_store.TrajectoryStore`.
-        trajectory_end: `int`
+        i: `int`
+            Index of trajectories end.
         """
         self.episodes_seen += 1
 
@@ -134,7 +155,15 @@ class Recorder():
         self._logger.log('episodes', episode_data)
 
     def _record_frame(self, frame: torch.Tensor):
-        """
+        """Copies a frame and appends it to the internal buffer.
+
+        The frame is checked, if it's a black screen or equal to
+        the last frame recorded.
+
+        Parameters
+        ----------
+        frame: :py:obj:`torch.Tensor`
+            The frame to record.
         """
         frame = frame[0, 0].clone().to('cpu').numpy()
 
@@ -178,7 +207,7 @@ class Recorder():
         rec_array = np.asarray(frames, dtype='uint8')
         # [T, H, W]
 
-        directory = os.path.join(self.save_path, 'gif')
+        directory = os.path.join(self._save_path, 'gif')
         os.makedirs(directory, exist_ok=True)
 
         fpath = os.path.join(directory, '%s.gif' % filename)

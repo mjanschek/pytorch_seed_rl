@@ -96,7 +96,7 @@ class Logger():
         Parameters
         ----------
         source: `str`
-            The :py:attr:`source` this :py:attr:`log_data` shall be written to.
+            The :py:attr:`source` this :py:attr:`log_data` comes from.
         log_data: `dict`
             The data that shall be logged :py:attr:`log_data`.
         """
