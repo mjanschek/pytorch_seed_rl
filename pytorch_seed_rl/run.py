@@ -27,119 +27,119 @@ from .agents import Learner
 from .environments import EnvSpawner
 from .nets import AtariNet
 
-parser = argparse.ArgumentParser(description="PyTorch_SEED_RL")
+PARSER = argparse.ArgumentParser(description="PyTorch_SEED_RL")
 
 # basic settings
-parser.add_argument("name", default="",
+PARSER.add_argument("name", default="",
                     help="Experiments name, defaults to environment id.")
-parser.add_argument('-R', '--reset',
+PARSER.add_argument('-R', '--reset',
                     help='USE WITH CAUTION!\n' +
                     'Resets existing experiment, this removes all data on subdir level.',
                     action='store_true')
-parser.add_argument('-v', '--verbose',
+PARSER.add_argument('-v', '--verbose',
                     help='Prints system metrics to command line.' +
                     'Set --print_interval for number of training epochs between prints.',
                     action='store_true')
-parser.add_argument('--print_interval', default=10, type=int,
+PARSER.add_argument('--print_interval', default=10, type=int,
                     help='Number of training epochs between prints.')
-parser.add_argument('--system_log_interval', default=1, type=int,
+PARSER.add_argument('--system_log_interval', default=1, type=int,
                     help='Number of core loops between logging system metrics.')
-parser.add_argument("--savedir", default=os.path.join(os.environ.get("HOME"),
+PARSER.add_argument("--savedir", default=os.path.join(os.environ.get("HOME"),
                                                       'logs',
                                                       'pytorch_seed_rl'),
                     type=str, help="Root dir where experiment data will be saved.")
-parser.add_argument('--render',
+PARSER.add_argument('--render',
                     action='store_true',
                     help="Renders an episode as gif, " +
                     " if the recorded data finished with a new point record.")
-parser.add_argument('--max_gif_length', default=0, type=int,
+PARSER.add_argument('--max_gif_length', default=0, type=int,
                     help="Enforces a maximum gif length." +
                     "Rendering is triggered, if recorded data reaches this volume.")
-parser.add_argument('--gpu_ids', default="", type=str,
+PARSER.add_argument('--gpu_ids', default="", type=str,
                     help='A comma-separated list of cuda ids this program is permitted to use.')
 
 # General training settings
-parser.add_argument("--total_steps", default=100000, type=int,
+PARSER.add_argument("--total_steps", default=100000, type=int,
                     help="Total environment steps.")
-parser.add_argument("--max_epoch", default=-1, type=int,
+PARSER.add_argument("--max_epoch", default=-1, type=int,
                     help="Training epoch limit. Set to -1 for no limit.")
-parser.add_argument("--max_time", default=-1, type=float,
+PARSER.add_argument("--max_time", default=-1, type=float,
                     help="Runtime limit. Set to -1 for no limit.")
-parser.add_argument("--batchsize_training", default=4, type=int,
+PARSER.add_argument("--batchsize_training", default=4, type=int,
                     help="Training batch size.")
-parser.add_argument("--rollout", default=80, type=int,
+PARSER.add_argument("--rollout", default=80, type=int,
                     help="The rollout length used for training. \n" +
                     "See IMPALA paper for more info.")
-parser.add_argument("--use_lstm", action="store_true",
+PARSER.add_argument("--use_lstm", action="store_true",
                     help="Use LSTM in agent model.")
 
 # Environment settings
-parser.add_argument("--env", type=str, default="BreakoutNoFrameskip-v4",
+PARSER.add_argument("--env", type=str, default="BreakoutNoFrameskip-v4",
                     help="Gym environment.")
-parser.add_argument("--num_envs", type=int, default=16,
+PARSER.add_argument("--num_envs", type=int, default=16,
                     help="Number of environments per actor.")
 
 # Architecture settings
-parser.add_argument("--master_address", default='localhost', type=str,
+PARSER.add_argument("--master_address", default='localhost', type=str,
                     help="The master adress for the RPC processgroup. \n" +
                     "WARNING: CHANGE WITH CAUTION!")
-parser.add_argument("--master_port", default='29500', type=str,
+PARSER.add_argument("--master_port", default='29500', type=str,
                     help="The master port for the RPC processgroup. \n" +
                     "WARNING: CHANGE WITH CAUTION!")
-parser.add_argument("--num_actors", default=2, type=int,
+PARSER.add_argument("--num_actors", default=2, type=int,
                     help="Number of actors.")
-parser.add_argument("--num_prefetchers", default=1, type=int,
+PARSER.add_argument("--num_prefetchers", default=1, type=int,
                     help="Number of prefetch threads.")
-parser.add_argument("--num_inference_threads", default=1, type=int,
+PARSER.add_argument("--num_inference_threads", default=1, type=int,
                     help="Number of inference threads.")
-parser.add_argument("--num_storing_threads", default=4, type=int,
+PARSER.add_argument("--num_storing_threads", default=4, type=int,
                     help="Number of storing threads.")
-parser.add_argument('--tensorpipe',
+PARSER.add_argument('--tensorpipe',
                     help='Uses the default RPC backend of pytorch, Tensorpipe.',
                     action='store_true')
-parser.add_argument("--max_queued_batches", default=128, type=int,
+PARSER.add_argument("--max_queued_batches", default=128, type=int,
                     help="Number of batches that can be queued concurrently." +
                     "This prevents memory overflow.")
-parser.add_argument("--max_queued_drops", default=128, type=int,
+PARSER.add_argument("--max_queued_drops", default=128, type=int,
                     help="Number of trajectories that can be queued concurrently by the store." +
                     "This prevents memory overflow.")
 
 # Loss settings.
-parser.add_argument("--pg_cost", default=1.,
+PARSER.add_argument("--pg_cost", default=1.,
                     type=float, help="Policy gradient cost/multiplier.")
-parser.add_argument("--baseline_cost", default=0.5,
+PARSER.add_argument("--baseline_cost", default=0.5,
                     type=float, help="Baseline cost/multiplier.")
-parser.add_argument("--entropy_cost", default=0.01,
+PARSER.add_argument("--entropy_cost", default=0.01,
                     type=float, help="Entropy cost/multiplier.")
-parser.add_argument("--discounting", default=0.99,
+PARSER.add_argument("--discounting", default=0.99,
                     type=float, help="Discounting factor.")
-parser.add_argument("--reward_clipping", default="abs_one",
+PARSER.add_argument("--reward_clipping", default="abs_one",
                     choices=["abs_one", "none"],
                     help="Reward clipping.")
 
 # Optimizer settings.
-parser.add_argument("--optimizer", default='rmsprop',
+PARSER.add_argument("--optimizer", default='rmsprop',
                     choices=['adam', 'rmsprop'],
                     type=str, help="Optimizer used for weight updates.")
-parser.add_argument("--learning_rate", default=0.0005,
+PARSER.add_argument("--learning_rate", default=0.0005,
                     type=float, metavar="LR", help="Learning rate.")
-parser.add_argument("--grad_norm_clipping", default=40., type=float,
+PARSER.add_argument("--grad_norm_clipping", default=40., type=float,
                     help="Global gradient norm clip.")
-parser.add_argument("--epsilon", default=1e-08, type=float,
+PARSER.add_argument("--epsilon", default=1e-08, type=float,
                     help="Optimizer epsilon for numerical stability.")
-parser.add_argument("--decay", default=0, type=float,
+PARSER.add_argument("--decay", default=0, type=float,
                     help="Optimizer weight decay.")
 
 # Adam specific settings.
-parser.add_argument("--beta_1", default=0.9, type=float,
+PARSER.add_argument("--beta_1", default=0.9, type=float,
                     help="Adam beta 1.")
-parser.add_argument("--beta_2", default=0.999, type=float,
+PARSER.add_argument("--beta_2", default=0.999, type=float,
                     help="Adam beta 2.")
 
 # RMSProp specific settings.
-parser.add_argument("--alpha", default=0.99, type=float,
+PARSER.add_argument("--alpha", default=0.99, type=float,
                     help="RMSProp smoothing constant.")
-parser.add_argument("--momentum", default=0, type=float,
+PARSER.add_argument("--momentum", default=0, type=float,
                     help="RMSProp momentum.")
 
 LEARNER_NAME = "learner{}"
@@ -250,12 +250,13 @@ def _write_flags(flags):
     """
     os.makedirs(flags.full_path, exist_ok=True)
 
+    # pylint: disable=invalid-name
     with open(flags.json_path, 'w', encoding='utf-8') as f:
         json.dump(vars(flags), f, ensure_ascii=False, indent=4)
 
 
 def main(flags):
-    """
+    """Parse flags and run experiment.
     """
     if flags.name == "":
         flags.name = flags.env
@@ -264,7 +265,8 @@ def main(flags):
     flags.json_path = os.path.join(flags.full_path, 'config.json')
 
     if os.path.isfile(flags.json_path) and not flags.reset:
-        print("EXPERIMENT DATA EXISTS. CHANGE --savedir OR RESTART WITH RESET FLAG (-R) TO OVERWRITE DATA!")
+        print("EXPERIMENT DATA EXISTS. CHANGE --savedir",
+              "OR RESTART WITH RESET FLAG (-R) TO OVERWRITE DATA!")
         return
 
     shutil.rmtree(flags.full_path, ignore_errors=True)
@@ -311,7 +313,7 @@ def main(flags):
 
 
 if __name__ == '__main__':
-    FLAGS = parser.parse_args()
+    FLAGS = PARSER.parse_args()
 
     # every thread gets an own physical thread
     os.environ["OMP_NUM_THREADS"] = "1"

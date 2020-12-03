@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# pylint: disable=not-callable
+# pylint: disable=not-callable, empty-docstring
 """
 """
 import os
@@ -97,7 +97,7 @@ class Recorder():
             #   - or episode runs very long (which can happen due to bugs of env)
             if self.record_eps_id is not None:
                 if ((0 < self.max_gif_length <= len(self.rec_frames)) or
-                    (trajectory['states']['episode_id'][i] - self.record_eps_id > 1000) or
+                        (trajectory['states']['episode_id'][i] - self.record_eps_id > 1000) or
                         (trajectory['states']['episode_step'][i] > 10*60*24)):
 
                     self.record_eps_id = None
@@ -165,7 +165,8 @@ class Recorder():
     def _write_gif(self,
                    frames: List[np.ndarray],
                    filename: str):
-        """Writes a gif file made off the list of :py:attr:`frames` using the given :py:attr:`filename`.
+        """Writes a gif file made off the list of :py:attr:`frames`
+        using the given :py:attr:`filename`.
 
         Parameters
         ----------

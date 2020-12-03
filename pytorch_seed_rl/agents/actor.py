@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# pylint: disable=empty-docstring
 """
 """
 import time
@@ -97,8 +99,8 @@ class Actor(RpcCaller):
                 # sanity: assert answer is actually for this environment
                 assert self._gen_env_id(i) == answer_id
 
-                # perform an environment step
-                # and save new state and possible information recorded during inference on the Learner.
+                # perform an environment step,
+                # save new state and possible information recorded during inference on the Learner.
                 self.current_states[i] = self.envs[i].step(action)
                 self.current_states[i] = {
                     **self.current_states[i], **inference_infos}
@@ -126,6 +128,3 @@ class Actor(RpcCaller):
         """
         for env in self.envs:
             env.close()
-
-    def get_futures(self):
-        return self.futures

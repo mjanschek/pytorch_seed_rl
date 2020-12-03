@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# pylint: disable=empty-docstring
 """
 """
 from abc import abstractmethod
@@ -34,6 +36,7 @@ class RpcCaller():
         # ASSERTIONS
         # check for RpcCallee being inherited by callee_rref
         # use import here to omit circular import
+        # pylint: disable=import-outside-toplevel
         from ..agents.rpc_callee import RpcCallee
         assert issubclass(callee_rref._get_type(), RpcCallee)
 
@@ -42,6 +45,7 @@ class RpcCaller():
         self.rank = rank
         self._loop_iteration = 0
 
+        # pylint: disable=invalid-name
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
         self.shutdown = False
@@ -84,8 +88,3 @@ class RpcCaller():
         """Sets `shutdown` True.
         """
         return self._shutdown
-
-    def get_state(self):
-        """Sets `shutdown` True.
-        """
-        return self.state

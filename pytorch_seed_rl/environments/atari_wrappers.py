@@ -25,7 +25,7 @@
 # and slightly modified (again)
 
 # pylint: disable=missing-module-docstring, missing-class-docstring
-# pylint: missing-function-docstring, too-many-arguments, arguments-differ
+# pylint: disable=missing-function-docstring, too-many-arguments, arguments-differ
 """A collection of wrappers applicable to environments following the OpenAI gym API
 
 See Also
