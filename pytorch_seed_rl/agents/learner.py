@@ -22,7 +22,7 @@ import queue
 import time
 from collections import deque
 from threading import Thread
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import torch
 import torch.multiprocessing as mp
@@ -447,7 +447,7 @@ class Learner(RpcCallee):
                           grad_norm_clipping: float = 40.,
                           pg_cost: float = 1.,
                           baseline_cost: float = 0.5,
-                          entropy_cost: float = 0.01):
+                          entropy_cost: float = 0.01) -> Dict[str, Any]:
         """Runs the learning process and updates the internal model.
 
         This method:
@@ -620,7 +620,7 @@ class Learner(RpcCallee):
                 continue
 
     @staticmethod
-    def _to_batch(trajectories: List[dict], target_device):
+    def _to_batch(trajectories: List[dict], target_device) -> Dict[str, torch.Tensor]:
         """Extracts states from a list of trajectories, returns them as batch.
 
         Parameters
