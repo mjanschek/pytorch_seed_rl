@@ -307,7 +307,9 @@ def main(flags):
 
 if __name__ == '__main__':
     FLAGS = parser.parse_args()
-    # os.environ["OMP_NUM_THREADS"] = "1"
+
+    # every thread gets an own physical thread
+    os.environ["OMP_NUM_THREADS"] = "1"
     if FLAGS.gpu_ids != "":
         os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_ids
     main(FLAGS)
