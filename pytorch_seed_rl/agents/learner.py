@@ -193,11 +193,13 @@ class Learner(RpcCallee):
         self.eval_device = self.training_device if torch.cuda.device_count(
         ) == 1 else torch.device("cuda:1")
         if torch.cuda.device_count() > 1:
+            print("2 GPUs used!")
             model = DataParallel(model)
 
         self.model = model.to(self.training_device)
 
         self.eval_model = self.model
+        self.eval_model = self.eval_model.to(self.eval_device)
         self.eval_model.eval()
 
         self.optimizer = optimizer
