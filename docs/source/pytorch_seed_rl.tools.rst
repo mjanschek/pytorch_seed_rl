@@ -12,7 +12,15 @@ Exposed classes
 Logger (``tools.Logger``)
 ................................................................
 
-.. autoclass:: pytorch_seed_rl.tools.Logger
+.. autoclass:: pytorch_seed_rl.tools.logger.Logger
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Trajectory store (``tools.Recorder``)
+................................................................
+
+.. autoclass:: pytorch_seed_rl.tools.Recorder
    :members:
    :undoc-members:
    :show-inheritance:
