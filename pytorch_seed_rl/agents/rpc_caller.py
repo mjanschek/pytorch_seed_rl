@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# pylint: disable=empty-docstring
+# pylint: disable=empty-docstring, import-outside-toplevel
 """
 """
 from abc import abstractmethod
@@ -36,20 +36,22 @@ class RpcCaller():
         # ASSERTIONS
         # check for RpcCallee being inherited by callee_rref
         # use import here to omit circular import
-        # pylint: disable=import-outside-toplevel
         from ..agents.rpc_callee import RpcCallee
         assert issubclass(callee_rref._get_type(), RpcCallee)
 
         # ATTRIBUTES
+
+        # RPC
         self.callee_rref = callee_rref
         self.rank = rank
-        self._loop_iteration = 0
-
         # pylint: disable=invalid-name
         self.id = rpc.get_worker_info().id
         self.name = rpc.get_worker_info().name
+
+        # COUNTER
+        self._loop_iteration = 0
+
         self.shutdown = False
-        self._shutdown = False
 
     def loop(self):
         """Main loop function of an :py:class:`RpcCaller`.
@@ -64,7 +66,6 @@ class RpcCaller():
             self._loop()
 
         self._cleanup()
-        self._shutdown = True
 
     def batched_rpc(self, *args, **kwargs) -> Future:
         """Wrap for batched async RPC ran on remote callee.
@@ -83,8 +84,3 @@ class RpcCaller():
         """Cleans up after main loop is done. Called by :py:meth:`loop()`
         """
         raise NotImplementedError
-
-    def get_shutdown(self):
-        """Sets `shutdown` True.
-        """
-        return self._shutdown
