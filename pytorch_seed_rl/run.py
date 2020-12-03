@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import shutil
+import time
 
 import torch.distributed.rpc as rpc
 import torch.multiprocessing as mp
@@ -220,8 +221,9 @@ def _run_threads(rank,
                                           'max_queued_drops': flags.max_queued_drops,
                                           })
 
-        training_rref = learner_rref.remote().loop()
-        training_rref.to_here(timeout=0)
+        learner_rref.remote().loop()
+        while not learner_rref.rpc_sync().get_shutdown():
+            time.sleep(1)
     else:
         rpc.init_rpc(ACTOR_NAME.format(rank),
                      backend=backend,
@@ -230,7 +232,10 @@ def _run_threads(rank,
                      )
 
     # block until all rpcs finish
-    rpc.shutdown()
+    try:
+        rpc.shutdown()
+    except RuntimeError:  # RPC connection shut down
+        return
 
 
 def _write_flags(flags):

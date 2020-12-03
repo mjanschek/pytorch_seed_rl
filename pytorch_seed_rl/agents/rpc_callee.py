@@ -16,8 +16,8 @@
 import time
 from abc import abstractmethod
 from collections import deque
-from typing import List, Union
 from threading import Thread
+from typing import List, Union
 
 import torch.multiprocessing as mp
 from torch.distributed import rpc
@@ -82,6 +82,7 @@ class RpcCallee():
         self.lock_batching = mp.Lock()
         self.t_start = 0.
         self.shutdown = False
+        self._shutdown_done = False
 
         # counters
         self._loop_iteration = 0
@@ -92,6 +93,7 @@ class RpcCallee():
         self.pending_rpcs = deque()
 
         self.future_answers = {k: Future() for k in future_keys}
+        self.current_futures = deque(maxlen=len(future_keys))
 
         # self.inference_thread = self.rref.remote()._process_batch()
         self.processing_threads = [
@@ -159,6 +161,7 @@ class RpcCallee():
             self._loop()
 
         self._cleanup()
+        self._shutdown_done = True
 
     @async_execution
     def batched_process(self,
@@ -185,6 +188,8 @@ class RpcCallee():
         # Use batching lock to prohibit concurrent appending of self.pending_rpcs
         with self.lock_batching:
             self.pending_rpcs.append((caller_id, *args, kwargs))
+
+        self.current_futures.append((caller_id, f_answer))
 
         return f_answer
 
@@ -261,17 +266,16 @@ class RpcCallee():
         Should invoke super() method, if implemented by child class.
         """
         # Answer pending rpcs to enable actors to terminate
-        print("Answering pending RPCs")
+        print("Answering pending RPCs.")
         self._answer_rpcs()
 
+        print("Joining processing threads.")
         for t in self.processing_threads:
             try:
                 t.join(timeout=5)
             except RuntimeError:
                 # dead thread
                 pass
-
-        print(self.pending_rpcs)
 
     def _answer_rpcs(self, threshold: int = 10):
         """Answers all pending RPCs if their caller is not inactive, yet.
@@ -287,14 +291,33 @@ class RpcCallee():
                 continue
 
             caller_id = rpc_tuple[0]
+            self._answer_future(self.future_answers[caller_id], caller_id)
 
-            # return answer=None, shutdown=True, answer_id=caller_id, empty dict
-            self.future_answers[caller_id].set_result((None,
-                                                       True,
-                                                       caller_id,
-                                                       dict()))
+        # sometimes, futures are missing from pending_rpcs
+        for _ in range(len(self.current_futures)):
+            caller_id, f_answer = self.current_futures.popleft()
+            try:
+                self._answer_future(f_answer, caller_id)
+            except RuntimeError:  # already answered
+                pass
+
+    def _answer_future(self, future, caller_id):
+        future.set_result((None,
+                           True,
+                           caller_id,
+                           dict()))
 
     def set_shutdown(self):
         """Sets `shutdown` True.
         """
         self.shutdown = True
+
+    def get_shutdown(self):
+        """Sets `shutdown` True.
+        """
+        return self.shutdown
+
+    def get_shutdown_done(self):
+        """Sets `shutdown` True.
+        """
+        return self._shutdown_done
