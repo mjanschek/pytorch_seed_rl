@@ -11,6 +11,11 @@ API documentation of ``pytorch_seed_rl``
    :undoc-members:
    :show-inheritance:
 
+.. automodule:: pytorch_seed_rl.eval
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Submodules
 -----------
 

@@ -122,6 +122,8 @@ class TrajectoryStore():
         self._reset_states(trajectory['states'])
 
     def del_all(self):
+        """Delets all data stored in :py:attr:`self._internal_store`
+        """
         for value in self._internal_store.values():
             del value
 

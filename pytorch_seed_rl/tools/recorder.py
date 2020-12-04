@@ -100,7 +100,8 @@ class Recorder():
             if done and i > 0:
                 self._log_episode(trajectory, i-1)
 
-                if self._render and trajectory['states']['prev_episode_id'][i] == self.record_eps_id:
+                if (self._render
+                        and trajectory['states']['prev_episode_id'][i] == self.record_eps_id):
                     self._record_episode()
 
             if self._render:
@@ -154,7 +155,7 @@ class Recorder():
 
         self._logger.log('episodes', episode_data)
 
-    def _record_frame(self, frame: torch.Tensor, checks = True):
+    def _record_frame(self, frame: torch.Tensor, checks=True):
         """Copies a frame and appends it to the internal buffer.
 
         The frame is checked, if it's a black screen or equal to
@@ -190,7 +191,7 @@ class Recorder():
         if check_return:
             if self.best_return is None or self.record_return > self.best_return:
                 print("Record eps %d with %d frames and %f return!" %
-                    (self.record_eps_id, len(self.rec_frames), self.record_return))
+                      (self.record_eps_id, len(self.rec_frames), self.record_return))
                 self.best_return = self.record_return
 
                 fname = "e%d_r%d" % (self.record_eps_id, self.record_return)

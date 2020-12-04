@@ -11,12 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Main python script
+#
+# pylint: disable=empty-docstring
+"""
 """
 import argparse
 import os
-import time
 
+import gym
 import torch
 
 from .environments import EnvSpawner
@@ -54,7 +56,6 @@ PARSER.add_argument('--gpu_ids', default="", type=str,
 
 
 def _get_model_path(flags) -> bool:
-
     model_path = os.path.join(flags.full_path, 'model', 'final_model.pt')
     if not os.path.isfile(model_path):
         print("NO MODEL FOUND AT PATH %s!" % model_path)
@@ -64,7 +65,7 @@ def _get_model_path(flags) -> bool:
 
 
 def main(flags):
-    """Parse flags and run experiment.
+    """Evaluate a model.
     """
     if flags.name == "":
         flags.name = flags.env
@@ -93,13 +94,27 @@ def main(flags):
                         render=flags.render,
                         max_gif_length=flags.max_gif_length)
 
-    interaction_loop(flags, model, env, recorder)
+    _interaction_loop(flags, model, env, recorder)
 
 
-def interaction_loop(flags,
-                     model: torch.nn.Module,
-                     env: EnvSpawner,
-                     recorder: Recorder):
+def _interaction_loop(flags,
+                      model: torch.nn.Module,
+                      env: gym.Env,
+                      recorder: Recorder):
+    """Starts interaction loop
+
+    Parameters
+    ----------
+    flags: `namespace`
+        Flags as read by the argument parser.
+    model: :py:obj:`torch.nn.Module`
+        PyTorch model to evaluate.
+    env: :py:class:`gym.Env`
+        An environment as spawned by the :py:class:`~EnvSpawner`.
+    recorded: :py:class:`~Recorder`
+        A recorder that logs and records data.
+    """
+    # pylint: disable=protected-access
     steps = 0
     episodes = 0
     state = env.initial()
