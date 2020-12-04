@@ -121,6 +121,10 @@ class TrajectoryStore():
 
         self._reset_states(trajectory['states'])
 
+    def del_all(self):
+        for value in self._internal_store.values():
+            del value
+
     @staticmethod
     def _reset_states(states):
         """Fills given list of states with 0 inplace.
@@ -136,8 +140,8 @@ class TrajectoryStore():
 
     def add_to_entry(self,
                      key: str,
-                     state: dict,
-                     metrics: dict = None):
+                     in_state: dict,
+                     in_metrics: dict = None):
         """Fills given list of states with 0 inplace.
 
         Parameters
@@ -151,11 +155,14 @@ class TrajectoryStore():
         metrics: `dict`
             An optional dictionary containing additional values.
         """
-        self._locks_trajectories[key].acquire()
-
         # all keys must be known to store
-        assert all(k in self.zero_obs.keys() for k in state.keys())
+        assert all(k in self.zero_obs.keys() for k in in_state.keys())
 
+        state = {k: value.clone() for k, value in in_state.items()}
+        metrics = {k: value.clone() for k, value in in_metrics.items()}
+        del in_state, in_metrics
+
+        self._locks_trajectories[key].acquire()
         # load known trajectory
         internal_trajectory = self._internal_store[key]
         length = internal_trajectory['current_length'].item()

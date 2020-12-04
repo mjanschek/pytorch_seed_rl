@@ -21,6 +21,7 @@ import os
 import pprint
 import queue
 import time
+import warnings
 from collections import deque
 from threading import Thread
 from typing import Any, Dict, List, Tuple, Union
@@ -326,10 +327,13 @@ class Learner(RpcCallee):
 
             self.recorder.log('training', training_metrics)
 
-        if self._checkpoint_interval > 0 and self.training_epoch % self._checkpoint_interval == 0:
-            # 0 or 1
-            i = int(self.training_epoch % (2*self._checkpoint_interval) != 0)
-            self._save_checkpoint(self._model_path, i)
+        if self._checkpoint_interval > 0:
+            # mus split up to not divide by zero
+            if self.training_epoch % self._checkpoint_interval == 0:
+                # 0 or 1
+                i = int(self.training_epoch %
+                        (2*self._checkpoint_interval) != 0)
+                self._save_checkpoint(self._model_path, i)
 
         # check if queues are dead
         self._check_dead_queues()
@@ -340,12 +344,6 @@ class Learner(RpcCallee):
                          (self.get_runtime() > self._max_time > 0) or
                          self.shutdown)
 
-        # be sure to broadcast or react to shutdown event
-        if self.shutdown_event.is_set():
-            self.shutdown = True
-        elif self.shutdown:
-            self.shutdown_event.set()
-
         if self._loop_iteration == self._system_log_interval and not self.shutdown:
             system_metrics = self._get_system_metrics()
             self.recorder.log('system', system_metrics)
@@ -353,6 +351,12 @@ class Learner(RpcCallee):
 
             if self._verbose and (self.training_epoch % self._print_interval == 0):
                 print(pprint.pformat(system_metrics))
+
+        # be sure to broadcast or react to shutdown event
+        if self.shutdown_event.is_set():
+            self.shutdown = True
+        elif self.shutdown:
+            self.shutdown_event.set()
 
     def process_batch(self,
                       caller_ids: List[Union[int, str]],
@@ -456,13 +460,13 @@ class Learner(RpcCallee):
             The time in seconds to wait for new data.
         """
         while not self.shutdown_event.is_set():
-            # print(len(self.storing_deque))
             try:
                 caller_id, state, metrics = self.storing_deque.popleft()
             except IndexError:  # deque empty
                 time.sleep(waiting_time)
                 continue
             self.trajectory_store.add_to_entry(caller_id, state, metrics)
+            del state, metrics
 
     def _learn_from_batch(self,
                           batch: Dict[str, torch.Tensor],
@@ -631,12 +635,20 @@ class Learner(RpcCallee):
                 continue
 
             batch = Learner._to_batch(trajectories, target_device)
+            # delete Tensors after usage to free memory (see torch multiprocessing)
             del trajectories
 
             try:
                 out_queue.put(batch)
             except (AssertionError, ValueError):  # queue closed
                 continue
+
+        # delete Tensors after usage to free memory (see torch multiprocessing)
+        del batch
+        try:
+            del trajectories
+        except UnboundLocalError:  # already deleted
+            pass
 
     @staticmethod
     def _to_batch(trajectories: List[dict], target_device) -> Dict[str, torch.Tensor]:
@@ -691,6 +703,7 @@ class Learner(RpcCallee):
         filename: `str`
             The filename the saved model shall have. Defaults to ``final_model.pt``.
         """
+        os.makedirs(path, exist_ok=True)
         save_path = os.path.join(path, filename)
         torch.save(self.model.state_dict(), save_path)
 
@@ -711,7 +724,7 @@ class Learner(RpcCallee):
             The filenames suffix. This is used to enable multiple consecutive checkpoints.
         """
         with warnings.catch_warnings():
-            # warning is thrown on scheduler.state_dict() as optimizers state should be saved as well.
+            # warning thrown on scheduler.state_dict(): optimizers state should be saved as well.
             # disable this warning because we do save the optimizers state
             warnings.simplefilter("ignore", category=UserWarning)
             model_dict = {
@@ -781,10 +794,12 @@ class Learner(RpcCallee):
                 and (checkpoint_1 is None
                      or checkpoint_0['training_epoch'] >= checkpoint_1['training_epoch'])):
             checkpoint = checkpoint_0
+            del checkpoint_1
         elif (checkpoint_1 is not None
               and (checkpoint_0 is None
                    or checkpoint_1['training_epoch'] > checkpoint_0['training_epoch'])):
             checkpoint = checkpoint_1
+            del checkpoint_0
         else:
             raise FileNotFoundError('No checkpoints found!')
 
@@ -794,7 +809,7 @@ class Learner(RpcCallee):
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
         with warnings.catch_warnings():
-            # warning is thrown on scheduler.state_dict() as optimizers state should be loaded as well.
+            # warning thrown on scheduler.state_dict(): optimizers state should be loaded as well.
             # disable this warning because we do save the optimizers state
             warnings.simplefilter("ignore", category=UserWarning)
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
@@ -867,9 +882,13 @@ class Learner(RpcCallee):
 
         Overwrites and calls :py:meth:`~.RpcCallee._cleanup()`.
         """
+        self._save_model(self._model_path)
+
         self.runtime = self.get_runtime()
         self.queue_batches.close()
         self.queue_drops.close()
+        self.trajectory_store.del_all()
+        self.shutdown_event.set()
 
         super()._cleanup()
 
@@ -877,6 +896,15 @@ class Learner(RpcCallee):
         print("Write and empty log buffers.")
         # pylint: disable=protected-access
         self.recorder._logger.write_buffers()
+
+        print("Empty queues.")
+        # Empty queues
+        while self.queue_batches.qsize() > 0:
+            batch = self.queue_batches.get()
+            del batch
+        while self.queue_drops.qsize() > 0:
+            drop = self.queue_drops.get()
+            del drop
 
         # Remove process to ensure freeing of resources.
         print("Join threads.")
@@ -890,8 +918,11 @@ class Learner(RpcCallee):
         self.queue_batches.join_thread()
         self.queue_drops.join_thread()
 
+        print("Empty CUDA cache.")
+        torch.cuda.empty_cache()
+
         # Run garbage collection to ensure freeing of resources.
-        # print("Running garbage collection.")
+        print("Running garbage collection.")
         gc.collect()
 
         if self._verbose:

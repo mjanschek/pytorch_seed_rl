@@ -126,6 +126,9 @@ class Actor(RpcCaller):
 
             Implements :py:meth:`~.RpcCaller._cleanup()`.
         """
+        for state in {**self._current_states, **self._metrics}.values():
+            del state
+
         # in case this actor renders an environment
         for env in self._envs:
             env.close()

@@ -154,7 +154,7 @@ class Recorder():
 
         self._logger.log('episodes', episode_data)
 
-    def _record_frame(self, frame: torch.Tensor):
+    def _record_frame(self, frame: torch.Tensor, checks = True):
         """Copies a frame and appends it to the internal buffer.
 
         The frame is checked, if it's a black screen or equal to
@@ -168,25 +168,35 @@ class Recorder():
         frame = frame[0, 0].clone().to('cpu').numpy()
 
         # skip black screens (should not happen)
-        if np.sum(frame) > 0:
-            if len(self.rec_frames) > 0:
-                # skip frame, if it did not change
-                if not np.array_equal(frame, self.rec_frames[-1]):
+        if checks:
+            if np.sum(frame) > 0:
+                if len(self.rec_frames) > 0:
+                    # skip frame, if it did not change
+                    if not np.array_equal(frame, self.rec_frames[-1]):
+                        self.rec_frames.append(frame)
+                else:
                     self.rec_frames.append(frame)
-            else:
-                self.rec_frames.append(frame)
+        else:
+            self.rec_frames.append(frame)
 
-    def _record_episode(self):
+    def _record_episode(self, check_return=True):
         """Empties :py:attr:`self.rec_frames` and writes a gif, if episode score is a new record.
 
         If :py:attr:`self.record_return` is a new record, write gif file.
         """
-        if self.best_return is None or self.record_return > self.best_return:
-            print("Record eps %d with %d frames and %f return!" %
-                  (self.record_eps_id, len(self.rec_frames), self.record_return))
-            self.best_return = self.record_return
+        if len(self.rec_frames) == 0:
+            self.record_eps_id = None
+            return
+        if check_return:
+            if self.best_return is None or self.record_return > self.best_return:
+                print("Record eps %d with %d frames and %f return!" %
+                    (self.record_eps_id, len(self.rec_frames), self.record_return))
+                self.best_return = self.record_return
 
-            fname = "e%d_r%d" % (self.record_eps_id, self.record_return)
+                fname = "e%d_r%d" % (self.record_eps_id, self.record_return)
+                self._write_gif(self.rec_frames, fname)
+        else:
+            fname = "e%d" % (self.record_eps_id)
             self._write_gif(self.rec_frames, fname)
         self.record_eps_id = None
         self.rec_frames = []
@@ -211,4 +221,8 @@ class Recorder():
         os.makedirs(directory, exist_ok=True)
 
         fpath = os.path.join(directory, '%s.gif' % filename)
-        imageio.mimsave(fpath, rec_array, fps=20)
+        try:
+            imageio.mimsave(fpath, rec_array, fps=20)
+        except ValueError:
+            print(rec_array.shape)
+            raise ValueError
