@@ -17,6 +17,7 @@
 """
 import copy
 import gc
+import os
 import pprint
 import queue
 import time
@@ -111,6 +112,12 @@ class Learner(RpcCallee):
         Set True if system metrics shall be printed at interval set by `print_interval`.
     print_interval : `int`
         Interval of training epoch system metrics shall be printed. Set to 0 to surpress printing.
+    system_log_interval : `int`
+        Interval of logging system metrics.
+    load_checkpoint : `bool`
+        Set True if the most checkpoint shall be loaded.
+    checkpoint_interval : `int`
+        Interval of checkpointing. Set to 0 to surpress checkpointing.
     max_queued_batches: `int`
         Limits the number of batches that can be queued at once.
     max_queued_drops: `int`
@@ -145,6 +152,8 @@ class Learner(RpcCallee):
                  verbose: bool = False,
                  print_interval: int = 10,
                  system_log_interval: int = 1,
+                 load_checkpoint: bool = False,
+                 checkpoint_interval: int = 10,
                  max_queued_batches: int = 128,
                  max_queued_drops: int = 128,
                  max_queued_stores: int = 1024):
@@ -162,6 +171,7 @@ class Learner(RpcCallee):
 
         # ATTRIBUTES
         self._save_path = save_path
+        self._model_path = os.path.join(save_path, 'model')
 
         self._pg_cost = pg_cost
         self._baseline_cost = baseline_cost
@@ -169,6 +179,8 @@ class Learner(RpcCallee):
         self._discounting = discounting
         self._grad_norm_clipping = grad_norm_clipping
         self._reward_clipping = reward_clipping
+        self._batchsize_training = batchsize_training
+        self._rollout = rollout
 
         self._total_steps = total_steps
         self._max_epoch = max_epoch
@@ -177,6 +189,7 @@ class Learner(RpcCallee):
         self._verbose = verbose
         self._print_interval = print_interval
         self._system_log_interval = system_log_interval
+        self._checkpoint_interval = checkpoint_interval
 
         # COUNTERS
         self.inference_epoch = 0
@@ -218,6 +231,15 @@ class Learner(RpcCallee):
             return 1 - min(epoch * rollout * batchsize_training, total_steps) / total_steps
         self.scheduler = LambdaLR(self.optimizer, linear_lambda)
 
+        # TOOLS
+        self.recorder = Recorder(save_path=self._save_path,
+                                 render=render,
+                                 max_gif_length=max_gif_length)
+
+        # LOAD CHECKPOINT, IF WANTED
+        if load_checkpoint:
+            self._load_checkpoint(self._model_path)
+
         # THREADS
         self.lock_model = mp.Lock()
         self.lock_prefetch = mp.Lock()
@@ -248,11 +270,6 @@ class Learner(RpcCallee):
                                        daemon=True,
                                        name='storing_thread_%d' % i)
                                 for i in range(threads_store)]
-
-        # TOOLS
-        self.recorder = Recorder(save_path=self._save_path,
-                                 render=render,
-                                 max_gif_length=max_gif_length)
 
         # spawn trajectory store
         placeholder_eval_obs = self._build_placeholder_eval_obs(env_spawner)
@@ -300,22 +317,19 @@ class Learner(RpcCallee):
                                                       pg_cost=self._pg_cost,
                                                       baseline_cost=self._baseline_cost,
                                                       entropy_cost=self._entropy_cost)
-            # delete Tensor after usage to free memory (see torch multiprocessing)
+
+            # delete Tensors after usage to free memory (see torch multiprocessing)
             del batch
 
             with self.lock_model:
                 self.eval_model.load_state_dict(self.model.state_dict())
 
             self.recorder.log('training', training_metrics)
-            del training_metrics
 
-        if self._loop_iteration == self._system_log_interval:
-            system_metrics = self._get_system_metrics()
-            self.recorder.log('system', system_metrics)
-            self._loop_iteration = 0
-
-        if self._verbose and (self.training_epoch % self._print_interval == 0):
-            print(pprint.pformat(system_metrics))
+        if self._checkpoint_interval > 0 and self.training_epoch % self._checkpoint_interval == 0:
+            # 0 or 1
+            i = int(self.training_epoch % (2*self._checkpoint_interval) != 0)
+            self._save_checkpoint(self._model_path, i)
 
         # check if queues are dead
         self._check_dead_queues()
@@ -332,6 +346,14 @@ class Learner(RpcCallee):
         elif self.shutdown:
             self.shutdown_event.set()
 
+        if self._loop_iteration == self._system_log_interval and not self.shutdown:
+            system_metrics = self._get_system_metrics()
+            self.recorder.log('system', system_metrics)
+            self._loop_iteration = 0
+
+            if self._verbose and (self.training_epoch % self._print_interval == 0):
+                print(pprint.pformat(system_metrics))
+
     def process_batch(self,
                       caller_ids: List[Union[int, str]],
                       *batch: List[dict],
@@ -341,9 +363,9 @@ class Learner(RpcCallee):
         Called by :py:meth:`~.RpcCallee._process_batch()`.
 
         Before returning the result for the given batch, this method:
-            #. Moves its data to the :py:class:`Learner` device (usually GPU)
-            #. Runs inference on this data
-            #. Invokes :py:meth:`_queue_for_storing()` to put evaluated data on
+            # . Moves its data to the :py:class:`Learner` device (usually GPU)
+            # . Runs inference on this data
+            # . Invokes :py:meth:`_queue_for_storing()` to put evaluated data on
                storing queue.
 
         Parameters
@@ -415,7 +437,7 @@ class Learner(RpcCallee):
         metrics: `dict`
             An actors metrics dictionary.
         """
-        while True:
+        while True and not self.shutdown:
             if len(self.storing_deque) < self.storing_deque.maxlen:
                 self.storing_deque.append((caller_id, state, metrics))
                 break
@@ -451,10 +473,10 @@ class Learner(RpcCallee):
         """Runs the learning process and updates the internal model.
 
         This method:
-            #. Evaluates the given :py:attr:`batch` with the internal learning model.
-            #. Invokes :py:meth:`compute_losses()` to get all components of the loss function.
-            #. Calculates the total loss, using the given cost factors for each component.
-            #. Updates the model by invoking the :py:attr:`self.optimizer`.
+            # . Evaluates the given :py:attr:`batch` with the internal learning model.
+            # . Invokes :py:meth:`compute_losses()` to get all components of the loss function.
+            # . Calculates the total loss, using the given cost factors for each component.
+            # . Updates the model by invoking the :py:attr:`self.optimizer`.
 
         Parameters
         ----------
@@ -496,7 +518,6 @@ class Learner(RpcCallee):
         self.optimizer.step()
         self.scheduler.step()
 
-        # return metrics
         return {"runtime": self.get_runtime(),
                 "training_time": self.training_time,
                 "training_epoch": self.training_epoch,
@@ -557,8 +578,6 @@ class Learner(RpcCallee):
                                             rewards=batch["reward"],
                                             discounts=discounts,)
 
-        # print(vtrace_returns.vs[:,0])
-
         pg_loss = loss.policy_gradient(learner_outputs["policy_logits"],
                                        batch["action"],
                                        vtrace_returns.pg_advantages)
@@ -616,7 +635,7 @@ class Learner(RpcCallee):
 
             try:
                 out_queue.put(batch)
-            except AssertionError:  # queue closed
+            except (AssertionError, ValueError):  # queue closed
                 continue
 
     @staticmethod
@@ -659,6 +678,144 @@ class Learner(RpcCallee):
             "queue_rpcs": len(self._pending_rpcs),
             "queue_storing": len(self.storing_deque),
         }
+
+    def _save_model(self,
+                    path: str,
+                    filename: str = 'final_model.pt'):
+        """Save the model at the given path.
+
+        Parameters
+        ----------
+        path: `str`
+            A valid path to a directory.
+        filename: `str`
+            The filename the saved model shall have. Defaults to ``final_model.pt``.
+        """
+        save_path = os.path.join(path, filename)
+        torch.save(self.model.state_dict(), save_path)
+
+        print('Final model saved at %s.' % save_path)
+
+    def _save_checkpoint(self,
+                         path: str,
+                         i: int):
+        """Saves a checkpoint at the given path.
+
+        The filename is fixed to ``checkpoint_i.pt``. ``i`` being an integer.
+
+        Parameters
+        ----------
+        path: `str`
+            A valid path to a directory.
+        i: `str`
+            The filenames suffix. This is used to enable multiple consecutive checkpoints.
+        """
+        with warnings.catch_warnings():
+            # warning is thrown on scheduler.state_dict() as optimizers state should be saved as well.
+            # disable this warning because we do save the optimizers state
+            warnings.simplefilter("ignore", category=UserWarning)
+            model_dict = {
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'scheduler_state_dict': self.scheduler.state_dict()
+            }
+
+        training_dict = {
+            "_pg_cost": self._pg_cost,
+            "_baseline_cost": self._baseline_cost,
+            "_entropy_cost": self._entropy_cost,
+            "_discounting": self._discounting,
+            "_grad_norm_clipping": self._grad_norm_clipping,
+            "_reward_clipping": self._reward_clipping,
+            "_batchsize_training": self._batchsize_training,
+            "_rollout": self._rollout,
+            "_total_steps": self._total_steps,
+        }
+
+        counters_dict = {
+            "runtime": self.get_runtime(),
+            "trajectories_seen": self.recorder.trajectories_seen,
+            "episodes_seen": self.recorder.episodes_seen,
+            "training_steps": self.training_steps,
+            "training_epoch": self.training_epoch,
+            "inference_steps": self.inference_steps,
+        }
+
+        save_dict = {
+            **model_dict,
+            **training_dict,
+            **counters_dict
+        }
+
+        os.makedirs(path, exist_ok=True)
+        save_path = os.path.join(path, 'checkpoint_%d.pt' % i)
+
+        torch.save(save_dict, save_path)
+
+        if self._verbose:
+            print('Made checkpoint after training epoch %d.' %
+                  self.training_epoch)
+
+    def _load_checkpoint(self,
+                         path: str):
+        """Loads the latest checkpoint from the given path.
+        Data will be loaded directly into programs components.
+
+        The files 'checkpoint_0.pt' and 'checkpoint_1.pt' will be checked at the given path.
+
+        Parameters
+        ----------
+        path: `str`
+            A valid path to a directory.
+        """
+        try:
+            checkpoint_0 = torch.load(os.path.join(path, 'checkpoint_0.pt'))
+        except FileNotFoundError:
+            checkpoint_0 = None
+        try:
+            checkpoint_1 = torch.load(os.path.join(path, 'checkpoint_1.pt'))
+        except FileNotFoundError:
+            checkpoint_1 = None
+
+        if (checkpoint_0 is not None
+                and (checkpoint_1 is None
+                     or checkpoint_0['training_epoch'] >= checkpoint_1['training_epoch'])):
+            checkpoint = checkpoint_0
+        elif (checkpoint_1 is not None
+              and (checkpoint_0 is None
+                   or checkpoint_1['training_epoch'] > checkpoint_0['training_epoch'])):
+            checkpoint = checkpoint_1
+        else:
+            raise FileNotFoundError('No checkpoints found!')
+
+            # model
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.eval_model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        with warnings.catch_warnings():
+            # warning is thrown on scheduler.state_dict() as optimizers state should be loaded as well.
+            # disable this warning because we do save the optimizers state
+            warnings.simplefilter("ignore", category=UserWarning)
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
+        # training
+        self._pg_cost = checkpoint['_pg_cost']
+        self._baseline_cost = checkpoint['_baseline_cost']
+        self._entropy_cost = checkpoint['_entropy_cost']
+        self._discounting = checkpoint['_discounting']
+        self._grad_norm_clipping = checkpoint['_grad_norm_clipping']
+        self._reward_clipping = checkpoint['_reward_clipping']
+        self._batchsize_training = checkpoint['_batchsize_training']
+        self._rollout = checkpoint['_rollout']
+
+        # counters
+        self._t_start = time.time()-checkpoint['runtime']
+        self.recorder.trajectories_seen = checkpoint['trajectories_seen']
+        self.recorder.episodes_seen = checkpoint['episodes_seen']
+        self.training_steps = checkpoint['training_steps']
+        self.training_epoch = checkpoint['training_epoch']
+        self.inference_steps = checkpoint['inference_steps']
 
     @staticmethod
     def _build_placeholder_eval_obs(env_spawner: EnvSpawner) -> Dict[str, torch.Tensor]:

@@ -92,7 +92,7 @@ class RpcCallee():
         self._shutdown_done = False
 
         # COUNTERS
-        self._t_start = 0.
+        self._t_start = time.time()
         self._loop_iteration = 0
 
         # STORAGE
@@ -124,8 +124,6 @@ class RpcCallee():
         #. Loops :py:meth:`_loop()` until :py:attr:`self.shutdown` is set True.
         #. Calls :py:meth:`_cleanup()`
         """
-        self._t_start = time.time()
-
         print("Loop started. You can interupt using strg+c.")
         while not self.shutdown:
             self._loop_iteration += 1

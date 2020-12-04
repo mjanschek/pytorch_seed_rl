@@ -36,6 +36,10 @@ PARSER.add_argument('-R', '--reset',
                     help='USE WITH CAUTION!\n' +
                     'Resets existing experiment, this removes all data on subdir level.',
                     action='store_true')
+PARSER.add_argument('-C', '--load_checkpoint',
+                    action='store_true',
+                    help="Continues training, " +
+                    "if model checkpoint is available.")
 PARSER.add_argument('-v', '--verbose',
                     help='Prints system metrics to command line.' +
                     'Set --print_interval for number of training epochs between prints.',
@@ -44,6 +48,8 @@ PARSER.add_argument('--print_interval', default=10, type=int,
                     help='Number of training epochs between prints.')
 PARSER.add_argument('--system_log_interval', default=1, type=int,
                     help='Number of core loops between logging system metrics.')
+PARSER.add_argument('--checkpoint_interval', default=10, type=int,
+                    help='Number of training epochs between checkpointing.')
 PARSER.add_argument("--savedir", default=os.path.join(os.environ.get("HOME"),
                                                       'logs',
                                                       'pytorch_seed_rl'),
@@ -217,6 +223,8 @@ def _run_threads(rank,
                                           'verbose': flags.verbose,
                                           'print_interval': flags.print_interval,
                                           'system_log_interval': flags.system_log_interval,
+                                          'checkpoint_interval': flags.checkpoint_interval,
+                                          'load_checkpoint': flags.load_checkpoint,
                                           'max_queued_batches': flags.max_queued_batches,
                                           'max_queued_drops': flags.max_queued_drops,
                                           })
@@ -255,6 +263,26 @@ def _write_flags(flags):
         json.dump(vars(flags), f, ensure_ascii=False, indent=4)
 
 
+def _check_flag_consistency(flags) -> bool:
+
+    if os.path.isfile(flags.json_path) and not (flags.reset or flags.load_checkpoint):
+        print("EXPERIMENT DIRECTORY EXISTS. CHANGE --savedir",
+              "OR RESTART WITH FLAG (-C) TO LOAD CHECKPOINT AND CONTINUE",
+              "OR RESTART WITH RESET FLAG (-R) TO OVERWRITE DATA!")
+        return False
+
+    if flags.load_checkpoint and flags.reset:
+        print("CAN NOT RESET AND CONTINUE!")
+        return False
+    if flags.load_checkpoint:
+        path = os.path.join(flags.full_path, 'model', 'checkpoint_')
+        if not (os.path.isfile(path + '0.pt') or os.path.isfile(path + '1.pt')):
+            print("NO CHECKPOINT FOUND!")
+            return False
+
+    return True
+
+
 def main(flags):
     """Parse flags and run experiment.
     """
@@ -264,12 +292,11 @@ def main(flags):
     flags.full_path = os.path.join(flags.savedir, flags.name)
     flags.json_path = os.path.join(flags.full_path, 'config.json')
 
-    if os.path.isfile(flags.json_path) and not flags.reset:
-        print("EXPERIMENT DATA EXISTS. CHANGE --savedir",
-              "OR RESTART WITH RESET FLAG (-R) TO OVERWRITE DATA!")
+    if not _check_flag_consistency(flags):
         return
 
-    shutil.rmtree(flags.full_path, ignore_errors=True)
+    if flags.reset:
+        shutil.rmtree(flags.full_path, ignore_errors=True)
     _write_flags(flags)
 
     # create and wrap environment
