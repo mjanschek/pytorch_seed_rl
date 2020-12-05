@@ -877,7 +877,7 @@ class Learner(RpcCallee):
             print("==========================================\n")
             self.shutdown = True
 
-    def _cleanup(self):
+    def _cleanup(self, waiting_time=5):
         """Cleans up after main loop is done. Called by :py:meth:`~.RpcCallee.loop()`.
 
         Overwrites and calls :py:meth:`~.RpcCallee._cleanup()`.
@@ -900,17 +900,17 @@ class Learner(RpcCallee):
         print("Empty queues.")
         # Empty queues
         while self.queue_batches.qsize() > 0:
-            batch = self.queue_batches.get()
+            batch = self.queue_batches.get(timeout=waiting_time)
             del batch
         while self.queue_drops.qsize() > 0:
-            drop = self.queue_drops.get()
+            drop = self.queue_drops.get(timeout=waiting_time)
             del drop
 
         # Remove process to ensure freeing of resources.
         print("Join threads.")
         for thread in [*self.prefetch_threads, *self.storing_threads]:
             try:
-                thread.join(timeout=5)
+                thread.join(timeout=waiting_time)
             except RuntimeError:
                 # Timeout, thread died during shutdown
                 pass
