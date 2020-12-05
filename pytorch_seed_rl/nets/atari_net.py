@@ -139,12 +139,8 @@ class AtariNet(Module):
         policy_logits = self.policy(core_output)
         baseline = self.baseline(core_output)
 
-        if self.training:
-            probs = F.softmax(policy_logits, dim=1)
-            action = torch.multinomial(probs, num_samples=1)
-        else:
-            # Don't sample when testing.
-            action = torch.argmax(policy_logits, dim=1)
+        probs = F.softmax(policy_logits, dim=1)
+        action = torch.multinomial(probs, num_samples=1)
 
         policy_logits = policy_logits.view(T, B, self.num_actions)
         baseline = baseline.view(T, B)
