@@ -8,7 +8,7 @@ This project has initially been designed as part of the master thesis *Scaling R
 <br/><br/>
 
 <p align="center">
-  <img src="docs/example.gif" alt="An examplatory episode of Breakout"/>
+  <img src="docs/breakout.gif" width="300" height="300" alt="An examplatory episode of Breakout"/>
 </p>
 
 ## References
