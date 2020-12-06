@@ -34,7 +34,7 @@ PARSER.add_argument('-v', '--verbose',
                     help='Prints system metrics to command line.' +
                     'Set --print_interval for number of training epochs between prints.',
                     action='store_true')
-PARSER.add_argument("--total_steps", default=100, type=int,
+PARSER.add_argument("--total_steps", default=2000, type=int,
                     help="Total environment steps.")
 PARSER.add_argument("--env", type=str, default="BreakoutNoFrameskip-v4",
                     help="Gym environment.")
