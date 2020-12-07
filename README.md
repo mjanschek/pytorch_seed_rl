@@ -8,17 +8,20 @@ This project has initially been designed as part of the master thesis *Scaling R
 <br/><br/>
 
 <p align="center">
-  <img src="docs/breakout.gif" width="300" height="300" alt="An examplatory episode of Breakout"/>
+  <img src="docs/breakout.gif" width="200" height="200" alt="An examplatory episode of Breakout"/>
+  <img src="docs/breakout.gif" width="200" height="200" alt="An examplatory episode of Pong"/>
 </p>
 
 ## References
 * [Online Documentation][1]
-* [Original SEED Repository][2]
-* [SEED RL Paper][2]
+* [Example Notebook][2]
+* [Original SEED Repository][3]
+* [SEED RL Paper][4]
 
 [1]: https://pytorch-seed-rl.readthedocs.io/ "Online documentation"
-[2]: https://github.com/google-research/seed_rl "SEED RL Repository"
-[3]: https://arxiv.org/abs/1910.06591 "SEED RL Paper"
+[2]: examples/learning_experiment.ipynb "Example Notebook"
+[3]: https://github.com/google-research/seed_rl "SEED RL Repository"
+[4]: https://arxiv.org/abs/1910.06591 "SEED RL Paper"
 
 ## Quickstart Guide
 To install this tool, clone the Git repository from Github and install directly from the source using pip:
