@@ -144,3 +144,5 @@ dmypy.json
 .history/
 
 logs/
+
+notebooks/
