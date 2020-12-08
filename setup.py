@@ -2,8 +2,7 @@ import setuptools
 
 INSTALL_REQUIRES = [
     'torch>=1.7',
-    'gym[atari]>=0.17.2',
-    'torchsummary>=1.5.1'
+    'gym[atari]>=0.17.2'
 ]
 
 TEST_REQUIRES = [
