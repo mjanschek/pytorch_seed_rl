@@ -1,7 +1,7 @@
 import setuptools
 
 INSTALL_REQUIRES = [
-    'torch>=1.5',
+    'torch>=1.7',
     'gym[atari]>=0.17.2',
     'torchsummary>=1.5.1'
 ]
@@ -13,6 +13,10 @@ TEST_REQUIRES = [
     
     # to be able to run `python setup.py checkdocs`
     'collective.checkdocs', 'pygments',
+]
+
+DOCS_REQUIRES = [
+    'sphinx>=2.0'
 ]
 
 with open("README.md", "r") as fh:
@@ -29,15 +33,16 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/mjanschek/pytorch_seed_rl",
     packages=setuptools.find_packages(),
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     install_requires=INSTALL_REQUIRES,
     extras_require={
         'test': TEST_REQUIRES + INSTALL_REQUIRES,
+        'docs': DOCS_REQUIRES + TEST_REQUIRES + INSTALL_REQUIRES,
     },
     classifiers=[
         "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
     ],
 )
