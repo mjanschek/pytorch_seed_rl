@@ -5,11 +5,14 @@
 A PyTorch implementation of SEED, originally created by Google Research for TensorFlow 2.
 
 This project has initially been designed as part of the master thesis *Scaling Reinforcement Learning* by Michael Janschek.
+
+Trained model files are included in the `data` subfolder.
 <br/><br/>
 
 <p align="center">
   <img src="docs/breakout.gif" width="200" height="200" alt="An examplatory episode of Breakout"/>
-  <img src="docs/breakout.gif" width="200" height="200" alt="An examplatory episode of Pong"/>
+  &nbsp; &nbsp;
+  <img src="docs/pong.gif" width="200" height="200" alt="An examplatory episode of Pong"/>
 </p>
 
 ## References
